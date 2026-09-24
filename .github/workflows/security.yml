@@ -19,6 +19,7 @@ jobs:
         with: {image-ref: artemis-api:scan, format: table, severity: "HIGH,CRITICAL", exit-code: '0', ignore-unfixed: true, scanners: vuln}
       - uses: aquasecurity/trivy-action@v0.36.0
         with: {image-ref: artemis-api:scan, format: sarif, output: trivy-results.sarif, severity: "HIGH,CRITICAL", limit-severities-for-sarif: true, exit-code: '1', ignore-unfixed: true, scanners: vuln}
-      - uses: github/codeql-action/upload-sarif@v3
-        if: github.actor != 'dependabot[bot]'
-        with: {sarif_file: trivy-results.sarif}
+      # Preserve SARIF even when GitHub Code Scanning is not enabled.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: trivy-sarif, path: trivy-results.sarif, if-no-files-found: error}
