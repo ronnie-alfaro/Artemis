@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.api.main import create_app
+from app.domain.whatsapp import WhatsAppChannelStatus
 
 
 def test_chat_returns_status_response_and_request_id() -> None:
@@ -46,3 +47,33 @@ def test_admin_token_protects_control_plane_api(monkeypatch) -> None:
     assert protected.status_code == 401
     assert status.json() == {"authentication_required": True}
     assert authorized.status_code == 200
+
+
+def test_whatsapp_skill_save_accepts_mandatory_status_on_round_trip() -> None:
+    class Runtime:
+        def __init__(self) -> None:
+            self.saved: list[str] = []
+
+        def status(self) -> WhatsAppChannelStatus:
+            return WhatsAppChannelStatus(configured=True, agent_name="primary", running=True)
+
+        async def capabilities(self) -> list[str]:
+            return ["assistant.status", *self.saved]
+
+        async def set_capabilities(self, capabilities: list[str]) -> None:
+            self.saved = capabilities
+
+    runtime = Runtime()
+    app = create_app()
+    with TestClient(app) as client:
+        app.state.whatsapp = runtime
+        app.state.karakeep_configured = True
+        response = client.put(
+            "/api/v1/agents/whatsapp/primary/skills",
+            json={"capabilities": ["assistant.status", "karakeep.bookmarks"]},
+        )
+        loaded = client.get("/api/v1/agents/whatsapp/primary/skills")
+    assert response.status_code == 200
+    assert loaded.status_code == 200
+    assert runtime.saved == ["karakeep.bookmarks"]
+    assert loaded.json()["capabilities"] == ["assistant.status", "karakeep.bookmarks"]

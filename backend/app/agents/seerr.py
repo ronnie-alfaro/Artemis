@@ -34,7 +34,14 @@ class SeerrAgent:
         version="0.1.0",
         purpose="Selects Seerr media search and approved requests using typed capabilities.",
         capabilities=[
-            AgentCapability(name="seerr.media", description="Search and request media via Seerr")
+            AgentCapability(
+                name="seerr.media",
+                description="Search and request media via Seerr",
+                help_text=(
+                    "• Películas y series: escribe ‘quiero pedir <título>’. "
+                    "Te mostraré opciones; responde con el número y luego ‘confirmo’ para enviarla."
+                ),
+            )
         ],
         permissions=[
             Permission(name="seerr.search.read", description="Search Seerr"),
@@ -53,7 +60,7 @@ class SeerrAgent:
 
     def select(self, message: IncomingMessage) -> str | None:
         if message.conversation_id in self._states or self._approvals.pending_for_conversation(
-            message.conversation_id
+            message.conversation_id, agent_name="seerr"
         ):
             return "seerr.media"
         intent = message.content.lower()
@@ -68,7 +75,7 @@ class SeerrAgent:
         content = request.message.content.strip()
         conversation_id = request.message.conversation_id
         state = self._states.setdefault(conversation_id, ConversationState())
-        pending = self._approvals.pending_for_conversation(conversation_id)
+        pending = self._approvals.pending_for_conversation(conversation_id, agent_name="seerr")
         if self._is_confirmation(content):
             return await self._confirm(request, pending)
         if content.lower() in {"no", "rechazo", "cancelar", "cancela"} and len(pending) == 1:

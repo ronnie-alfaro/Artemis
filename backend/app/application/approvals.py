@@ -77,11 +77,15 @@ class ApprovalStore:
     def all_approvals(self) -> list[ApprovalRequest]:
         return [self.get(item_id) for item_id in self._items]
 
-    def pending_for_conversation(self, conversation_id: UUID) -> list[ApprovalRequest]:
+    def pending_for_conversation(
+        self, conversation_id: UUID, agent_name: str | None = None
+    ) -> list[ApprovalRequest]:
         return [
             item
             for item in self.all_approvals()
-            if item.conversation_id == conversation_id and item.status is ApprovalStatus.PENDING
+            if item.conversation_id == conversation_id
+            and item.status is ApprovalStatus.PENDING
+            and (agent_name is None or item.agent_name == agent_name)
         ]
 
     def approve(self, approval_id: UUID) -> ApprovalRequest:

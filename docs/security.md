@@ -26,8 +26,10 @@ Every sensitive request, permission decision, tool invocation, and approval is a
 
 OIDC/session validation, CSRF policy for browser sessions, persistent audit store, secret manager integration, retention controls, tenant/user authorization, egress controls, threat-model review, and independent security scanning must be completed before write-capable agents are enabled.
 
-## Seerr-specific controls
+## External-skill controls
 
 The optional adapter accepts only validated `SEERR_BASE_URL` and `SEERR_API_KEY`; the key is sent solely as `X-Api-Key` and never appears in DTOs, traces, approvals, API responses or errors. HTTP failures map to safe structured codes without logging headers or bodies.
 
 `seerr.create_request` is `WRITE`: ToolRegistry limits it to the `seerr` agent and requires an unexpired approval for that exact tool. “sí”/“confirmo” works only when exactly one current approval belongs to that conversation; it cannot authorize an old, rejected, expired or unrelated operation. Replayed selections reuse a conversation/media/requester idempotency key.
+
+The optional Karakeep adapter accepts only a validated base URL and API key. The key is sent solely as `Authorization: Bearer` and never appears in DTOs, traces, approvals, API responses or safe error messages. The connection check uses `GET /api/v1/lists`; `karakeep.create_bookmark` is a `WRITE` allowlisted to the `karakeep` agent and requires an unexpired approval for that exact URL.

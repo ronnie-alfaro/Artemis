@@ -61,6 +61,18 @@ class CapabilitySelector(Protocol):
     def select(self, message: IncomingMessage) -> str | None: ...
 
 
+class CompositeCapabilitySelector:
+    def __init__(self, *selectors: CapabilitySelector) -> None:
+        self._selectors = selectors
+
+    def select(self, message: IncomingMessage) -> str | None:
+        for selector in self._selectors:
+            selected = selector.select(message)
+            if selected:
+                return selected
+        return None
+
+
 class DAGExecutor:
     def __init__(self, registry: AgentRegistry) -> None:
         self._registry = registry

@@ -13,12 +13,26 @@ from pydantic import SecretStr
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
+from app.agents.karakeep import KarakeepAgent
 from app.agents.seerr import SeerrAgent
 from app.agents.status import StatusAgent
 from app.application.approvals import ApprovalStore
-from app.application.orchestrator import CapabilityPlanner, DAGExecutor, Orchestrator, PlanningError
+from app.application.orchestrator import (
+    CapabilityPlanner,
+    CompositeCapabilitySelector,
+    DAGExecutor,
+    Orchestrator,
+    PlanningError,
+)
 from app.application.registry import AgentRegistry
 from app.application.whatsapp import WhatsAppAgentRuntime
+from app.domain.karakeep import (
+    KarakeepClient,
+    KarakeepClientError,
+    KarakeepConfigurationInput,
+    KarakeepConfigurationStatus,
+    KarakeepSettings,
+)
 from app.domain.models import (
     APIError,
     ApprovalRequest,
@@ -44,30 +58,53 @@ from app.domain.whatsapp import (
     WhatsAppSkillSelection,
 )
 from app.infrastructure.approval_state import PostgresApprovalStore
+from app.infrastructure.karakeep_config import PostgresKarakeepConfigurationStore
+from app.infrastructure.karakeep_http import HttpKarakeepClient
+from app.infrastructure.karakeep_unconfigured import UnconfiguredKarakeepClient
 from app.infrastructure.seerr_config import PostgresSeerrConfigurationStore
 from app.infrastructure.seerr_http import HttpSeerrClient
 from app.infrastructure.seerr_unconfigured import UnconfiguredSeerrClient
 from app.infrastructure.whatsapp_http import HttpWhatsAppClient
 from app.infrastructure.whatsapp_state import PostgresWhatsAppStateStore
+from app.tools.karakeep import KarakeepBookmarkTool
 from app.tools.registry import ToolRegistry
 from app.tools.seerr import SeerrRequestTool
 
 REQUESTS = Counter("artemis_requests_total", "Artemis requests", ["path", "status"])
 
 
-def build_orchestrator(seerr_client: SeerrClient | None = None) -> Orchestrator:
+def build_orchestrator(
+    seerr_client: SeerrClient | None = None,
+    karakeep_client: KarakeepClient | None = None,
+) -> Orchestrator:
     approvals = ApprovalStore()
     tools = ToolRegistry(approvals)
     agents = AgentRegistry()
-    agents.register(StatusAgent())
     client = seerr_client or UnconfiguredSeerrClient()
     tools.register(SeerrRequestTool(client), authorized_agents={"seerr"})
-    selector = SeerrAgent(client, tools, approvals)
-    agents.register(selector)
-    orchestrator = Orchestrator(CapabilityPlanner(agents, selector), DAGExecutor(agents))
+    seerr_agent = SeerrAgent(client, tools, approvals)
+    agents.register(seerr_agent)
+    karakeep = karakeep_client or UnconfiguredKarakeepClient()
+    tools.register(KarakeepBookmarkTool(karakeep), authorized_agents={"karakeep"})
+    karakeep_agent = KarakeepAgent(karakeep, tools, approvals)
+    skill_agents = (seerr_agent, karakeep_agent)
+    agents.register(
+        StatusAgent(
+            {
+                capability.name: capability.help_text
+                for agent in skill_agents
+                for capability in agent.definition.capabilities
+                if capability.help_text
+            }
+        )
+    )
+    agents.register(karakeep_agent)
+    selectors = CompositeCapabilitySelector(seerr_agent, karakeep_agent)
+    orchestrator = Orchestrator(CapabilityPlanner(agents, selectors), DAGExecutor(agents))
     orchestrator.approvals = approvals  # type: ignore[attr-defined]
     orchestrator.tools = tools  # type: ignore[attr-defined]
-    orchestrator.seerr_agent = selector  # type: ignore[attr-defined]
+    orchestrator.seerr_agent = seerr_agent  # type: ignore[attr-defined]
+    orchestrator.karakeep_agent = karakeep_agent  # type: ignore[attr-defined]
     orchestrator.registry = agents  # type: ignore[attr-defined]
     return orchestrator
 
@@ -84,6 +121,18 @@ def configured_seerr_settings() -> SeerrSettings | None:
     if not base_url or not api_key:
         return None
     return SeerrSettings.model_validate({"base_url": base_url, "api_key": api_key})
+
+
+def configured_karakeep_client() -> KarakeepClient | None:
+    settings = configured_karakeep_settings()
+    return HttpKarakeepClient(settings) if settings else None
+
+
+def configured_karakeep_settings() -> KarakeepSettings | None:
+    base_url, api_key = os.getenv("KARAKEEP_BASE_URL"), os.getenv("KARAKEEP_API_KEY")
+    if not base_url or not api_key:
+        return None
+    return KarakeepSettings.model_validate({"base_url": base_url, "api_key": api_key})
 
 
 def configured_whatsapp_runtime(orchestrator: Orchestrator) -> WhatsAppAgentRuntime | None:
@@ -103,13 +152,15 @@ def configured_whatsapp_runtime(orchestrator: Orchestrator) -> WhatsAppAgentRunt
 
 
 def create_app() -> FastAPI:
-    orchestrator = build_orchestrator(configured_seerr_client())
+    orchestrator = build_orchestrator(configured_seerr_client(), configured_karakeep_client())
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         seerr_store: PostgresSeerrConfigurationStore | None = None
+        karakeep_store: PostgresKarakeepConfigurationStore | None = None
         approval_store: PostgresApprovalStore | None = None
         saved_settings: SeerrSettings | None = None
+        saved_karakeep_settings: KarakeepSettings | None = None
         database_url, encryption_key = (
             os.getenv("DATABASE_URL"),
             os.getenv("ARTEMIS_CONFIG_ENCRYPTION_KEY"),
@@ -120,6 +171,13 @@ def create_app() -> FastAPI:
             saved_settings = await seerr_store.load()
             if saved_settings:
                 orchestrator.seerr_agent.set_client(HttpSeerrClient(saved_settings))  # type: ignore[attr-defined]
+            karakeep_store = PostgresKarakeepConfigurationStore(database_url, encryption_key)
+            await karakeep_store.start()
+            saved_karakeep_settings = await karakeep_store.load()
+            if saved_karakeep_settings:
+                orchestrator.karakeep_agent.set_client(  # type: ignore[attr-defined]
+                    HttpKarakeepClient(saved_karakeep_settings)
+                )
         if database_url:
             approval_store = PostgresApprovalStore(database_url)
             await approval_store.start()
@@ -127,6 +185,10 @@ def create_app() -> FastAPI:
             orchestrator.approvals.bind_persistence(approval_store.save)  # type: ignore[attr-defined]
         app.state.seerr_configuration = seerr_store
         app.state.seerr_configured = bool(saved_settings or configured_seerr_settings())
+        app.state.karakeep_configuration = karakeep_store
+        app.state.karakeep_configured = bool(
+            saved_karakeep_settings or configured_karakeep_settings()
+        )
         runtime = configured_whatsapp_runtime(orchestrator)
         app.state.whatsapp = runtime
         if runtime:
@@ -138,6 +200,8 @@ def create_app() -> FastAPI:
                 await runtime.stop()
             if seerr_store:
                 await seerr_store.aclose()
+            if karakeep_store:
+                await karakeep_store.aclose()
             if approval_store:
                 await approval_store.aclose()
 
@@ -213,16 +277,27 @@ def create_app() -> FastAPI:
         )
 
     def whatsapp_assignable_capabilities() -> list[str]:
-        if not app.state.seerr_configured:
-            return []
+        configured_capabilities = {
+            "seerr.media": app.state.seerr_configured,
+            "karakeep.bookmarks": app.state.karakeep_configured,
+        }
         return [
             capability
             for capability in available_capabilities()
-            if capability != "assistant.status"
+            if configured_capabilities.get(capability, False)
         ]
 
     def seerr_store() -> PostgresSeerrConfigurationStore:
         store: PostgresSeerrConfigurationStore | None = app.state.seerr_configuration
+        if not store:
+            raise HTTPException(
+                status_code=503,
+                detail="Local encrypted skill configuration is unavailable in this deployment",
+            )
+        return store
+
+    def karakeep_store() -> PostgresKarakeepConfigurationStore:
+        store: PostgresKarakeepConfigurationStore | None = app.state.karakeep_configuration
         if not store:
             raise HTTPException(
                 status_code=503,
@@ -284,6 +359,64 @@ def create_app() -> FastAPI:
             last_test="Connection verified",
         )
 
+    @app.get("/api/v1/skills/karakeep/configuration", response_model=KarakeepConfigurationStatus)
+    async def karakeep_configuration() -> KarakeepConfigurationStatus:
+        saved = await karakeep_store().load()
+        if saved:
+            return KarakeepConfigurationStatus(
+                configured=True,
+                base_url=str(saved.base_url).rstrip("/"),
+                credential_source="control plane",
+            )
+        environment = configured_karakeep_settings()
+        if environment:
+            return KarakeepConfigurationStatus(
+                configured=True,
+                base_url=str(environment.base_url).rstrip("/"),
+                credential_source="environment",
+            )
+        return KarakeepConfigurationStatus(configured=False)
+
+    @app.put("/api/v1/skills/karakeep/configuration", response_model=KarakeepConfigurationStatus)
+    async def update_karakeep_configuration(
+        payload: KarakeepConfigurationInput,
+    ) -> KarakeepConfigurationStatus:
+        saved = await karakeep_store().save(payload)
+        orchestrator.karakeep_agent.set_client(HttpKarakeepClient(saved))  # type: ignore[attr-defined]
+        app.state.karakeep_configured = True
+        return KarakeepConfigurationStatus(
+            configured=True,
+            base_url=str(saved.base_url).rstrip("/"),
+            credential_source="control plane",
+        )
+
+    @app.post(
+        "/api/v1/skills/karakeep/configuration/test", response_model=KarakeepConfigurationStatus
+    )
+    async def test_karakeep_configuration() -> KarakeepConfigurationStatus:
+        saved = await karakeep_store().load()
+        settings = saved or configured_karakeep_settings()
+        if not settings:
+            return KarakeepConfigurationStatus(
+                configured=False, last_test="Configure Karakeep first"
+            )
+        client = HttpKarakeepClient(settings)
+        try:
+            await client.list_lists()
+        except KarakeepClientError as error:
+            return KarakeepConfigurationStatus(
+                configured=True,
+                base_url=str(settings.base_url).rstrip("/"),
+                credential_source="control plane" if saved else "environment",
+                last_test=f"Connection failed: {error.code}",
+            )
+        return KarakeepConfigurationStatus(
+            configured=True,
+            base_url=str(settings.base_url).rstrip("/"),
+            credential_source="control plane" if saved else "environment",
+            last_test="Connection verified",
+        )
+
     @app.get("/api/v1/agents/whatsapp/{agent_name}/skills", response_model=WhatsAppSkillBinding)
     async def whatsapp_skills(agent_name: str) -> WhatsAppSkillBinding:
         runtime = configured_whatsapp_runtime_for(agent_name)
@@ -299,12 +432,15 @@ def create_app() -> FastAPI:
     ) -> WhatsAppSkillBinding:
         runtime = configured_whatsapp_runtime_for(agent_name)
         available = whatsapp_assignable_capabilities()
-        unknown = sorted(set(payload.capabilities) - set(available))
+        # The status capability is mandatory and returned by GET. Accept it on
+        # round trips from clients, but persist only optional skill selections.
+        optional_capabilities = set(payload.capabilities) - {"assistant.status"}
+        unknown = sorted(optional_capabilities - set(available))
         if unknown:
             raise HTTPException(
                 status_code=422, detail=f"Unknown or inactive capabilities: {unknown}"
             )
-        await runtime.set_capabilities(payload.capabilities)
+        await runtime.set_capabilities(sorted(optional_capabilities))
         return WhatsAppSkillBinding(
             agent_name=agent_name,
             capabilities=await runtime.capabilities(),
@@ -358,6 +494,8 @@ def create_app() -> FastAPI:
         await orchestrator.approvals.flush()  # type: ignore[attr-defined]
         if approval.tool_name == "seerr.create_request" and orchestrator.seerr_agent:  # type: ignore[attr-defined]
             await orchestrator.seerr_agent.approve_operation(approval)  # type: ignore[attr-defined]
+        if approval.tool_name == "karakeep.create_bookmark" and orchestrator.karakeep_agent:  # type: ignore[attr-defined]
+            await orchestrator.karakeep_agent.approve_operation(approval)  # type: ignore[attr-defined]
         return orchestrator.approvals.get(approval_id)  # type: ignore[attr-defined,no-any-return]
 
     @app.post("/api/v1/approvals/{approval_id}/reject", response_model=ApprovalRequest)

@@ -34,3 +34,7 @@ No Docker socket, host filesystem, external LLM, Qdrant, or MCP server is requir
 ## WhatsApp
 
 WhatsApp is a documented, optional long-poll channel adapter. Create the agent in WhatsApp, inject its API token through `WHATSAPP_AGENT_TOKEN`, and Artemis connects it to the same typed orchestration and skills layers as the control plane. See [WhatsApp channel](docs/whatsapp.md).
+
+## Karakeep
+
+Karakeep is an optional bookmarks skill. Configure its URL and API key in the control plane, test the connection, then drag `karakeep.bookmarks` onto the WhatsApp agent. Saving a link always requires a concrete approval. See [Karakeep skill](docs/karakeep.md).

@@ -13,6 +13,9 @@ from app.domain.models import (
 class StatusAgent:
     """Safe WhatsApp default: describes the agent instead of pretending to do work."""
 
+    def __init__(self, skill_help: dict[str, str] | None = None) -> None:
+        self._skill_help = skill_help or {}
+
     definition = Agent(
         name="status",
         version="0.1.0",
@@ -31,12 +34,11 @@ class StatusAgent:
             request.message.channel.assistant_greeting or "Hola, soy tu asistente de WhatsApp."
         )
         capabilities = set(request.message.channel.allowed_capabilities)
-        options: list[str] = []
-        if "seerr.media" in capabilities:
-            options.append(
-                "• Pedir películas o series: escribe ‘quiero pedir <título>’. "
-                "Buscaré opciones y pediré tu aprobación antes de enviarla."
-            )
+        options = [
+            self._skill_help[capability]
+            for capability in sorted(capabilities)
+            if capability in self._skill_help
+        ]
         if options:
             content = f"{greeting}\n\nPuedo ayudarte con:\n" + "\n".join(options)
         else:
