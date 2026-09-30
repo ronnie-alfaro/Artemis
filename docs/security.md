@@ -10,7 +10,7 @@ System policy, agent instructions, user messages, retrieved documents/web pages,
 
 - Every agent and tool declares permissions, risk, schemas, timeout, and retry policy.
 - `READ` is automatic; `WRITE` needs approval by default; `DESTRUCTIVE` always needs explicit approval; `ADMIN` is disabled unless configured.
-- Approval records include operation, agent, tool, validated parameters, risk, reason, expiry, and audit events. Approval is a platform primitive, not a channel feature.
+- Approval records include operation, agent, tool, validated parameters, risk, reason, expiry, result, and durable audit state in PostgreSQL. Approval is a platform primitive, not a channel feature.
 - Inputs and outputs are validated at every boundary. Tool invocations have allowlisted implementations only.
 - No arbitrary shell, SSH, Docker socket, arbitrary filesystem, or unrestricted network tool exists. Homelab starts read-only and HTTP-target allowlisted.
 - Containers are non-root, use read-only filesystems/capability drops/no-new-privileges, and databases have no published port.
@@ -25,3 +25,9 @@ Every sensitive request, permission decision, tool invocation, and approval is a
 ## Required production work before privileged tools
 
 OIDC/session validation, CSRF policy for browser sessions, persistent audit store, secret manager integration, retention controls, tenant/user authorization, egress controls, threat-model review, and independent security scanning must be completed before write-capable agents are enabled.
+
+## Seerr-specific controls
+
+The optional adapter accepts only validated `SEERR_BASE_URL` and `SEERR_API_KEY`; the key is sent solely as `X-Api-Key` and never appears in DTOs, traces, approvals, API responses or errors. HTTP failures map to safe structured codes without logging headers or bodies.
+
+`seerr.create_request` is `WRITE`: ToolRegistry limits it to the `seerr` agent and requires an unexpired approval for that exact tool. “sí”/“confirmo” works only when exactly one current approval belongs to that conversation; it cannot authorize an old, rejected, expired or unrelated operation. Replayed selections reuse a conversation/media/requester idempotency key.

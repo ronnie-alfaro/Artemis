@@ -6,14 +6,15 @@ Artemis is a modular monolith for a homelab: one API process owns orchestration 
 
 ```text
  Channel adapters                 Application / domain                  Infrastructure
- REST | Web | CLI | WhatsApp? -> Gateway -> Orchestrator -> Registry -> Agents -> Tools/Providers/MCP
+ REST | Web | CLI | WhatsApp -> Gateway -> Orchestrator -> Registry -> Agents -> Tools/Providers/MCP
                                       |            |             |              |
                                    Conversation   DAG        permissions       audit/events
                                       |            |             |              |
                                    PostgreSQL <---+-------------+--------------+
 ```
 
-`WhatsApp?` is an empty adapter boundary pending official Third-Party Agent API documentation. No protocol is assumed.
+`WhatsApp` is a documented long-poll adapter. It owns provider tokens, cursor/deduplication state,
+opaque participant mapping and outbound serialization; the orchestrator receives ordinary typed messages.
 
 ## Core contracts
 
@@ -30,7 +31,7 @@ The planner consumes requested capabilities, not agent names or keywords. A futu
 
 ## Agent and plugin model
 
-An `Agent` is an independently declared capability: identity, purpose, instructions, capability list, permission set, model requirements, schemas, timeout/retry policy, health, metadata, optional memory, and MCP references. `AgentRegistry` validates manifests and registers healthy plugins; invalid plugins become unhealthy records rather than preventing startup. Initial packages are `library`, `research`, `homelab`, and this milestone's `fake` reference.
+An `Agent` is an independently declared capability: identity, purpose, instructions, capability list, permission set, model requirements, schemas, timeout/retry policy, health, metadata, optional memory, and MCP references. `AgentRegistry` validates manifests and registers healthy plugins; invalid plugins become unhealthy records rather than preventing startup. The initial runtime packages are the system status agent and optional `seerr`. Seerr is a business tool, not a channel or orchestration dependency.
 
 Manifests are validated at startup and instantiate agents through a trusted local entry-point mapping. Arbitrary plugin code is never loaded from user-controlled paths.
 
@@ -40,7 +41,7 @@ Manifests are validated at startup and instantiate agents through a trusted loca
 | --- | --- | --- |
 | Modular monolith | simple deploy/debug/audit | define ports and domain events so services can split later |
 | Typed DAG, not workflow engine | predictable and testable | limited dynamic workflows initially |
-| Deterministic fake planner first | no provider cost/flakiness | production planner arrives behind interface |
+| Status-first fallback | a safe response when no optional skill matches | providers remain behind typed interfaces |
 | PostgreSQL platform state | familiar, durable | Alembic migrations and retention policy required |
 | Tools behind permissions | prevents direct model authority | approvals add interaction latency |
 
@@ -69,8 +70,14 @@ deploy/
 
 Artemis is not a chat product. Its Web UI is the control plane where operators compose versioned, permissioned flows from agents and skills, bind a flow to a channel, inspect runs, and approve sensitive actions. The REST channel and a future Web sandbox are test surfaces, not the product's primary interaction model. A visual builder produces a declarative execution DAG; it may not introduce arbitrary code, unknown tools, unchecked dependencies, or privilege escalation.
 
-Primary navigation is `Overview`, `Agents`, `Skills`, `Flows`, `Channels`, `Runs`, `Approvals`, and `Settings`. WhatsApp belongs exclusively in `Channels` when official documentation permits a real adapter.
+Primary navigation is `Overview`, `Agents`, `Skills`, `Flows`, `Channels`, `Runs`, `Approvals`, and `Settings`. WhatsApp belongs exclusively in `Channels`; its agent is created in WhatsApp and connected with secret-backed configuration.
 
 ## First vertical slice
 
-Web UI submits text to `POST /api/v1/chat`; REST creates `IncomingMessage`; the capability planner selects the registered `fake.echo` agent; the executor invokes the registered read-only `fake.echo_tool`; a typed response and expandable trace returns. It proves channel/core/agent/tool boundaries without provider credentials or privileged actions.
+WhatsApp submits typed inbound traffic through its adapter; the capability planner selects a configured optional skill only when bound to that agent, otherwise it selects the system status agent. The executor returns a typed response through the channel adapter. No demo agent or fake tool exists in the runtime.
+
+## Optional Seerr tool slice
+
+`SeerrClient` is a domain port with explicit media/request DTOs. `HttpSeerrClient` is its infrastructure implementation using `X-Api-Key`, `GET /api/v1/search`, typed details/status reads, and `POST /api/v1/request`. The sequence is `intent -> search -> selected candidate -> ApprovalRequest -> create_request`. Results contain title, year, type and TMDB id. A TV series is currently requested as a full series; granular season and quality-profile selection are reserved in DTOs but not claimed by this first conversational UI.
+
+Approval and candidate state are in-memory in this vertical slice, including conversation, sanitized parameters, operation correlation, expiry and idempotency. They must move to PostgreSQL before multi-process production. The WhatsApp adapter has its own PostgreSQL cursor/deduplication state; neither the Seerr port nor the orchestrator imports it.

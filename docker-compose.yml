@@ -3,11 +3,16 @@ services:
     build: ./backend
     environment:
       ARTEMIS_LOG_LEVEL: ${ARTEMIS_LOG_LEVEL:-INFO}
+      SEERR_BASE_URL: ${SEERR_BASE_URL:-}
+      SEERR_API_KEY: ${SEERR_API_KEY:-}
+      ARTEMIS_CONFIG_ENCRYPTION_KEY: ${ARTEMIS_CONFIG_ENCRYPTION_KEY:-}
+      WHATSAPP_AGENT_TOKEN: ${WHATSAPP_AGENT_TOKEN:-}
+      WHATSAPP_AGENT_NAME: ${WHATSAPP_AGENT_NAME:-primary}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-artemis}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-artemis}
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [internal]
+    networks: [internal, whatsapp-egress]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -47,3 +52,4 @@ networks:
   internal:
     internal: true
   edge: {}
+  whatsapp-egress: {}

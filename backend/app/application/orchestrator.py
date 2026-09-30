@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Protocol
 from uuid import UUID, uuid4
 
 from app.application.registry import AgentRegistry
@@ -25,10 +26,12 @@ class PlanningError(ValueError):
 @dataclass(frozen=True)
 class CapabilityPlanner:
     registry: AgentRegistry
+    selector: CapabilitySelector | None = None
 
     def plan(self, message: IncomingMessage) -> ExecutionPlan:
         nodes: list[PlanNode] = []
-        for index, capability in enumerate(message.required_capabilities):
+        capabilities = message.required_capabilities or [self._select(message)]
+        for index, capability in enumerate(capabilities):
             candidates = self.registry.discover(capability)
             if not candidates:
                 raise PlanningError(f"no healthy agent advertises capability '{capability}'")
@@ -40,6 +43,22 @@ class CapabilityPlanner:
                 )
             )
         return ExecutionPlan(conversation_id=message.conversation_id, nodes=nodes)
+
+    def _select(self, message: IncomingMessage) -> str:
+        allowed = message.channel.allowed_capabilities
+        if self.selector:
+            selected = self.selector.select(message)
+            if selected and (not allowed or selected in allowed):
+                return selected
+        if allowed:
+            if "assistant.status" in allowed:
+                return "assistant.status"
+            raise PlanningError("no bound capability matches this message")
+        return "assistant.status"
+
+
+class CapabilitySelector(Protocol):
+    def select(self, message: IncomingMessage) -> str | None: ...
 
 
 class DAGExecutor:

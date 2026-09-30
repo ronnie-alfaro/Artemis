@@ -2,7 +2,7 @@
 
 Artemis is a self-hosted, channel-agnostic agentic orchestration platform for private environments. It starts as a secure modular monolith: channels submit typed messages, the orchestration core builds a capability-based execution DAG, independently-defined agents run behind permission boundaries, and a response plus trace returns to the channel.
 
-This repository currently delivers the first vertical slice: Web control plane -> versioned REST API -> orchestrator -> deterministic FakeAgent -> registered FakeTool -> response. The UI is a SaaS-style control plane for composing and operating agents, skills, flows, channels, runs, approvals, and configuration. It is intentionally provider-free and safe to run locally.
+This repository delivers a self-hosted WhatsApp agent control plane: Web UI -> versioned API -> orchestrator -> system status agent and configured skills -> WhatsApp Agent API. The UI composes and operates agents, skills, channels, approvals, and configuration without demo agents or fake runtime tools.
 
 ## Quick start
 
@@ -14,6 +14,8 @@ make up
 ```
 
 Open http://127.0.0.1:8080. Run verification with `make test lint typecheck`.
+
+For a persistent host deployment, use the separate [production deployment guide](docs/deployment.md). It requires an operator token, durable secrets, backups, and an authenticated access path.
 
 ## Runtime topology
 
@@ -31,4 +33,4 @@ No Docker socket, host filesystem, external LLM, Qdrant, or MCP server is requir
 
 ## WhatsApp
 
-WhatsApp is a future channel adapter only. Artemis does not fabricate or probe an undocumented integration. The Web UI is where a future adapter would be configured and associated with a validated flow. See [WhatsApp tracking](docs/whatsapp.md).
+WhatsApp is a documented, optional long-poll channel adapter. Create the agent in WhatsApp, inject its API token through `WHATSAPP_AGENT_TOKEN`, and Artemis connects it to the same typed orchestration and skills layers as the control plane. See [WhatsApp channel](docs/whatsapp.md).

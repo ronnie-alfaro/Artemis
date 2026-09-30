@@ -6,7 +6,7 @@ Architecture/security/roadmap documentation, ADRs, Docker Compose topology, CI s
 
 ## M1 — durable core
 
-PostgreSQL models and Alembic, REST channel, conversation/activity persistence, fake provider, and a flow sandbox/execution-trace UX.
+PostgreSQL models and Alembic, conversation/activity persistence, execution-trace UX, and production migrations.
 
 ## M2 — registry and plugins
 
@@ -20,6 +20,8 @@ Provider-backed typed planning, DAG dependencies, concurrent scheduling, retries
 
 Tool registry, policy evaluator, persisted approval lifecycle, approval UI, audit events.
 
+The Seerr slice demonstrates an optional typed business tool and explicit `WRITE` confirmation. Persistence, tenant identity, season/quality UI, egress allowlisting and a live integration smoke test remain prerequisites for production enablement.
+
 ## M5–M7 — useful capabilities
 
 Qdrant-bound Library Agent, provider-agnostic Research Agent, read-only allowlisted Homelab Agent, tracing/metrics/activity UI.
@@ -28,6 +30,6 @@ Qdrant-bound Library Agent, provider-agnostic Research Agent, read-only allowlis
 
 MCP client boundary, eval datasets and CI reports, authentication, retention, backups, release/deploy automation, operational runbooks.
 
-## M11 — WhatsApp (blocked by public specification)
+## M11 — WhatsApp (initial adapter implemented)
 
-Implement only after official documentation covers authentication, endpoint/connection lifecycle, send/receive, media, IDs, rate limits, reconnect/error behavior, and API-key rotation. Work stays in `channels/whatsapp` and channel configuration.
+The documented Agent API supports secret-backed authentication, a durable single-poller receive loop, text replies, read/typing status, opaque participant mapping, and deduplication. Next work: media transfer/verification, multi-agent configuration, migrations, rate-limit metrics, and a safely configured live smoke test.
