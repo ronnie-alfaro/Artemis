@@ -1,6 +1,7 @@
 import { useEffect, useState, type DragEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
+import "./brand.css";
 import "./skills.css";
 
 type View = "Overview" | "Agents" | "Skills" | "Flows" | "Channels" | "Runs" | "Approvals" | "Settings";
