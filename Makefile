@@ -1,4 +1,4 @@
-.PHONY: setup dev test lint typecheck security eval build up down
+.PHONY: setup dev test lint typecheck security eval build up production down
 
 setup:
 	python3.12 -m venv .venv && .venv/bin/pip install -e "backend[dev]"
@@ -22,5 +22,7 @@ build:
 	docker compose build
 up:
 	docker compose up --build -d
+production:
+	docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.production.yml up --build -d
 down:
 	docker compose down

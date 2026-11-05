@@ -1,0 +1,25 @@
+.mark {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 52px;
+  padding-left: 64px;
+}
+
+.mark::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 52px;
+  height: 52px;
+  background: url("/artemis-logo.png?v=2") center / contain no-repeat;
+  filter: invert(1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .mark::before {
+    filter: none;
+  }
+}

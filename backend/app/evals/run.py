@@ -10,10 +10,10 @@ async def main() -> None:
         conversation_id=uuid4(),
         channel=Channel(name="eval"),
         content="eval",
-        required_capabilities=["fake.echo"],
+        required_capabilities=["assistant.status"],
     )
     response = await build_orchestrator().handle(message)
-    if response.executions[0].agent_name != "fake":
+    if response.executions[0].agent_name != "status":
         raise RuntimeError("eval routing mismatch")
     print("routing_accuracy=1.0 tool_selection_accuracy=1.0 permission_violations=0")
 

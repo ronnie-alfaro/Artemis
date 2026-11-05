@@ -26,6 +26,15 @@ class ExecutionStatus(StrEnum):
     WAITING_APPROVAL = "waiting_approval"
 
 
+class ApprovalStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    EXECUTED = "executed"
+    FAILED = "failed"
+
+
 class Permission(BaseModel):
     name: str
     description: str
@@ -34,11 +43,17 @@ class Permission(BaseModel):
 class AgentCapability(BaseModel):
     name: str
     description: str
+    help_text: str | None = Field(
+        default=None,
+        description="User-facing instructions shown when this capability is assigned to a channel.",
+    )
 
 
 class Channel(BaseModel):
     name: str
     version: str = "v1"
+    allowed_capabilities: list[str] = Field(default_factory=list)
+    assistant_greeting: str | None = Field(default=None, max_length=1024)
 
 
 class Conversation(BaseModel):
@@ -52,7 +67,7 @@ class IncomingMessage(BaseModel):
     conversation_id: UUID
     channel: Channel
     content: str = Field(min_length=1, max_length=20_000)
-    required_capabilities: list[str] = Field(default_factory=lambda: ["fake.echo"])
+    required_capabilities: list[str] = Field(default_factory=list)
     received_at: datetime = Field(default_factory=utcnow)
 
 
@@ -120,8 +135,9 @@ class ToolInvocation(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     tool_name: str
     agent_name: str
-    input: dict[str, str]
+    input: dict[str, object]
     risk_level: RiskLevel
+    approval_id: UUID | None = None
 
 
 class ToolResult(BaseModel):
@@ -137,6 +153,10 @@ class ApprovalRequest(BaseModel):
     risk_level: RiskLevel
     reason: str
     expires_at: datetime
+    conversation_id: UUID
+    operation_id: UUID
+    status: ApprovalStatus = ApprovalStatus.PENDING
+    result: dict[str, str] | None = None
 
 
 class PlanNode(BaseModel):
@@ -170,7 +190,7 @@ class APIError(BaseModel):
 class ChatRequest(BaseModel):
     content: str = Field(min_length=1, max_length=20_000)
     conversation_id: UUID | None = None
-    required_capabilities: list[str] = Field(default_factory=lambda: ["fake.echo"])
+    required_capabilities: list[str] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):
