@@ -19,7 +19,7 @@ class UnconfiguredSeerrClient:
     def _error() -> SeerrClientError:
         return SeerrClientError(
             SeerrClientErrorCode.CONFIGURATION,
-            "Seerr is not configured. An operator must configure the Seerr skill first.",
+            "Seerr no está configurado. Configura su conexión en Habilidades para empezar.",
         )
 
     async def search_media(self, query: str) -> SeerrSearchResult:

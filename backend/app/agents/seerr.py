@@ -15,6 +15,7 @@ from app.domain.models import (
     ApprovalRequest,
     IncomingMessage,
     Permission,
+    ReactionOption,
     RiskLevel,
     ToolInvocation,
 )
@@ -32,14 +33,20 @@ class SeerrAgent:
     definition = Agent(
         name="seerr",
         version="0.1.0",
-        purpose="Selects Seerr media search and approved requests using typed capabilities.",
+        purpose="Busca títulos en Seerr y prepara solicitudes confirmadas.",
         capabilities=[
             AgentCapability(
                 name="seerr.media",
-                description="Search and request media via Seerr",
+                description="Busca y solicita películas y series en Seerr",
                 help_text=(
-                    "• Películas y series: escribe ‘quiero pedir <título>’. "
-                    "Te mostraré opciones; responde con el número y luego ‘confirmo’ para enviarla."
+                    "Seerr · Películas y series:\n"
+                    "• Buscar títulos: escribe ‘quiero pedir <título>’. "
+                    "Verás hasta 5 opciones con título, año, tipo e ID de TMDB.\n"
+                    "• Preparar una solicitud: responde con el número de una opción. "
+                    "Las series se solicitan completas.\n"
+                    "• Enviar la solicitud pendiente: escribe ‘confirmo’. "
+                    "Te devolveré su ID y estado.\n"
+                    "• Rechazar la solicitud pendiente: escribe ‘cancelar’ o ‘no’."
                 ),
             )
         ],
@@ -53,6 +60,9 @@ class SeerrAgent:
     def __init__(self, client: SeerrClient, tools: ToolRegistry, approvals: ApprovalStore) -> None:
         self._client, self._tools, self._approvals = client, tools, approvals
         self._states: dict[UUID, ConversationState] = {}
+
+    def reset_conversation(self, conversation_id: UUID) -> None:
+        self._states.pop(conversation_id, None)
 
     def set_client(self, client: SeerrClient) -> None:
         self._client = client
@@ -107,6 +117,8 @@ class SeerrAgent:
             request,
             f"Encontré estas opciones:\n{options}\nResponde con el número que quieres solicitar.",
             {"tool": "seerr.search_media", "query": query},
+            reaction_options=[ReactionOption(emoji=f"{i}️⃣", label=title, command=str(i))
+                              for i, (_, _, title, _) in enumerate(state.candidates, 1)],
         )
 
     async def _select(
@@ -210,7 +222,7 @@ class SeerrAgent:
     def _query(content: str) -> str:
         return (
             re.sub(
-                r"^(quiero|puedo|podr[ií]as|me gustar[ií]a)?\s*(pedir|solicitar|ver)\s+",
+                r"^(quiero|puedo|podr[ií]as|me gustar[ií]a)?\s*(pedir|solicitar|ver|busca|buscar|búscame|buscame|search)\s+",
                 "",
                 content,
                 flags=re.IGNORECASE,
@@ -224,12 +236,14 @@ class SeerrAgent:
 
     @staticmethod
     def _response(
-        request: AgentRequest, content: str, metadata: dict[str, str] | None = None
+        request: AgentRequest, content: str, metadata: dict[str, str] | None = None,
+        reaction_options: list[ReactionOption] | None = None,
     ) -> AgentResponse:
         return AgentResponse(
             result=AgentResult(
                 agent_name="seerr",
                 content=content,
+                reaction_options=reaction_options or [],
                 metadata={"execution_id": str(request.execution_id), **(metadata or {})},
             )
         )

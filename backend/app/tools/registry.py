@@ -25,22 +25,35 @@ class ToolRegistry:
 
     def register(self, tool: ToolRunner, authorized_agents: set[str] | None = None) -> None:
         self._tools[tool.definition.name] = tool
-        self._authorized_agents[tool.definition.name] = authorized_agents or set()
+        allowed = set(authorized_agents or set())
+        if allowed and tool.definition.risk_level is RiskLevel.READ:
+            allowed.add("reminders")
+        self._authorized_agents[tool.definition.name] = allowed
 
     def replace(self, tool: ToolRunner, authorized_agents: set[str] | None = None) -> None:
         if tool.definition.name not in self._tools:
             raise KeyError(f"tool '{tool.definition.name}' is not registered")
-        self._tools[tool.definition.name] = tool
-        self._authorized_agents[tool.definition.name] = authorized_agents or set()
+        self.register(tool, authorized_agents)
+
+    def can_invoke(self, name: str, agent_name: str) -> bool:
+        if name not in self._tools:
+            return False
+        allowed = self._authorized_agents[name]
+        return not allowed or agent_name in allowed
 
     async def invoke(self, invocation: ToolInvocation) -> ToolResult:
         tool = self._tools[invocation.tool_name]
+        if invocation.risk_level is RiskLevel.READ and tool.definition.risk_level is not RiskLevel.READ:
+            raise PermissionError("A read-only invocation cannot execute a mutating tool")
         allowed_agents = self._authorized_agents[tool.definition.name]
         if allowed_agents and invocation.agent_name not in allowed_agents:
             raise PermissionError(
                 f"agent '{invocation.agent_name}' is not authorized for {tool.definition.name}"
             )
-        if tool.definition.risk_level is not RiskLevel.READ:
+        requires_approval = tool.definition.risk_level is not RiskLevel.READ and (
+            tool.definition.requires_approval or tool.definition.risk_level is not RiskLevel.WRITE
+        )
+        if requires_approval:
             if not invocation.approval_id or not self._approvals:
                 raise ApprovalRequired(f"{tool.definition.name} requires approval")
             approval = self._approvals.get(invocation.approval_id)

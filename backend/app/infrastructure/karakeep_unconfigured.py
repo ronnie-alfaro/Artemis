@@ -10,10 +10,13 @@ class UnconfiguredKarakeepClient:
     def _error() -> KarakeepClientError:
         return KarakeepClientError(
             "configuration",
-            "Karakeep is not configured. An operator must configure the Karakeep skill first.",
+            "Karakeep no está configurado. Configura su conexión en Habilidades para empezar.",
         )
 
     async def list_lists(self) -> None:
+        raise self._error()
+
+    async def search_bookmarks(self, query: str) -> list[KarakeepBookmark]:
         raise self._error()
 
     async def create_link(self, url: str, title: str | None = None) -> KarakeepBookmark:

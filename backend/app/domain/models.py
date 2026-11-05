@@ -71,7 +71,14 @@ class IncomingMessage(BaseModel):
     received_at: datetime = Field(default_factory=utcnow)
 
 
+class ReactionOption(BaseModel):
+    emoji: str
+    label: str
+    command: str
+
+
 class OutgoingMessage(BaseModel):
+    reaction_options: list[ReactionOption] = Field(default_factory=list, max_length=10)
     conversation_id: UUID
     content: str
     execution_id: UUID
@@ -102,6 +109,7 @@ class AgentRequest(BaseModel):
 
 
 class AgentResult(BaseModel):
+    reaction_options: list[ReactionOption] = Field(default_factory=list, max_length=10)
     agent_name: str
     content: str
     sources: list[str] = Field(default_factory=list)
@@ -123,6 +131,8 @@ class AgentExecution(BaseModel):
 
 
 class Tool(BaseModel):
+    input_example: dict[str, object] = Field(default_factory=dict)
+    requires_approval: bool = True
     name: str
     description: str
     permissions: list[Permission] = Field(default_factory=list)

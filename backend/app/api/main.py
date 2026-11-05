@@ -13,10 +13,23 @@ from pydantic import SecretStr
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
+from app.agents.antigravity import AntigravityAgent
+from app.agents.codex import CodexAgent
 from app.agents.karakeep import KarakeepAgent
 from app.agents.seerr import SeerrAgent
 from app.agents.status import StatusAgent
+from app.agents.usenet import UsenetAgent
+from app.api.antigravity import install_antigravity_routes
+from app.api.codex import install_codex_routes
+from app.api.notifications import install_notification_routes
+from app.api.reminders import install_reminder_routes
+from app.api.skills import install_skill_routes
+from app.api.usenet import install_usenet_routes
+from app.api.webhooks import install_webhook_routes, is_webhook_ingest
+from app.application.antigravity import AntigravityDeliveryWorker, AntigravityQueue
 from app.application.approvals import ApprovalStore
+from app.application.codex import CodexDeliveryWorker, CodexQueue
+from app.application.notifications import NotificationService
 from app.application.orchestrator import (
     CapabilityPlanner,
     CompositeCapabilitySelector,
@@ -25,6 +38,9 @@ from app.application.orchestrator import (
     PlanningError,
 )
 from app.application.registry import AgentRegistry
+from app.application.reminders import ReminderService, ReminderWorker
+from app.application.skill_sessions import SkillSessionRouter
+from app.application.webhook_notifications import WebhookNotificationWorker
 from app.application.whatsapp import WhatsAppAgentRuntime
 from app.domain.karakeep import (
     KarakeepClient,
@@ -42,6 +58,7 @@ from app.domain.models import (
     IncomingMessage,
     Tool,
 )
+from app.domain.notifications import NotificationSettings
 from app.domain.seerr import (
     SeerrClient,
     SeerrClientError,
@@ -49,6 +66,7 @@ from app.domain.seerr import (
     SeerrConfigurationStatus,
     SeerrSettings,
 )
+from app.domain.usenet import UsenetClient, UsenetClientError
 from app.domain.whatsapp import (
     WhatsAppAgentProfile,
     WhatsAppAgentProfileUpdate,
@@ -61,13 +79,23 @@ from app.infrastructure.approval_state import PostgresApprovalStore
 from app.infrastructure.karakeep_config import PostgresKarakeepConfigurationStore
 from app.infrastructure.karakeep_http import HttpKarakeepClient
 from app.infrastructure.karakeep_unconfigured import UnconfiguredKarakeepClient
+from app.infrastructure.reminders import PostgresReminderStore
 from app.infrastructure.seerr_config import PostgresSeerrConfigurationStore
 from app.infrastructure.seerr_http import HttpSeerrClient
 from app.infrastructure.seerr_unconfigured import UnconfiguredSeerrClient
+from app.infrastructure.skill_presentations import PostgresSkillPresentationStore
+from app.infrastructure.skill_sessions import PostgresSkillSessionStore
+from app.infrastructure.usenet_config import PostgresUsenetConfigurationStore
+from app.infrastructure.usenet_http import HttpUsenetClient
+from app.infrastructure.webhook_events import PostgresWebhookEventStore
 from app.infrastructure.whatsapp_http import HttpWhatsAppClient
 from app.infrastructure.whatsapp_state import PostgresWhatsAppStateStore
+from app.tools.antigravity import AntigravityTool
+from app.tools.codex import CodexTool
 from app.tools.karakeep import KarakeepBookmarkTool
+from app.tools.notifications import SendNotificationTool
 from app.tools.registry import ToolRegistry
+from app.tools.reminders import CreateReminderTool
 from app.tools.seerr import SeerrRequestTool
 
 REQUESTS = Counter("artemis_requests_total", "Artemis requests", ["path", "status"])
@@ -76,6 +104,7 @@ REQUESTS = Counter("artemis_requests_total", "Artemis requests", ["path", "statu
 def build_orchestrator(
     seerr_client: SeerrClient | None = None,
     karakeep_client: KarakeepClient | None = None,
+    usenet_client: UsenetClient | None = None,
 ) -> Orchestrator:
     approvals = ApprovalStore()
     tools = ToolRegistry(approvals)
@@ -87,24 +116,66 @@ def build_orchestrator(
     karakeep = karakeep_client or UnconfiguredKarakeepClient()
     tools.register(KarakeepBookmarkTool(karakeep), authorized_agents={"karakeep"})
     karakeep_agent = KarakeepAgent(karakeep, tools, approvals)
-    skill_agents = (seerr_agent, karakeep_agent)
-    agents.register(
-        StatusAgent(
-            {
-                capability.name: capability.help_text
-                for agent in skill_agents
-                for capability in agent.definition.capabilities
-                if capability.help_text
-            }
-        )
+    usenet_agent = UsenetAgent(usenet_client, tools, approvals)
+    agents.register(usenet_agent)
+    codex_queue = CodexQueue(os.getenv("ARTEMIS_CODEX_QUEUE_DIR"))
+    codex_agent = CodexAgent(codex_queue, tools)
+    agents.register(codex_agent)
+    antigravity_queue = AntigravityQueue(os.getenv("ARTEMIS_ANTIGRAVITY_QUEUE_DIR"))
+    antigravity_agent = AntigravityAgent(antigravity_queue, tools)
+    agents.register(antigravity_agent)
+    skill_agents = (seerr_agent, karakeep_agent, usenet_agent, codex_agent, antigravity_agent)
+    for create_tool in (False, True):
+        tools.register(CodexTool(codex_queue, create_tool), authorized_agents={
+            *(agent.definition.name for agent in skill_agents), "control-plane",
+        })
+    for create_tool in (False, True):
+        tools.register(AntigravityTool(antigravity_queue, create_tool), authorized_agents={
+            *(agent.definition.name for agent in skill_agents), "control-plane",
+        })
+    status_agent = StatusAgent(
+        {
+            capability.name: capability.help_text or capability.description
+            for agent in skill_agents
+            for capability in agent.definition.capabilities
+        }
     )
+    agents.register(status_agent)
+
+    def reset_conversation(conversation_id: UUID) -> None:
+        seerr_agent.reset_conversation(conversation_id)
+        usenet_agent.reset_conversation(conversation_id)
+
+    sessions = SkillSessionRouter(status_agent.presentations, approvals, reset_conversation)
     agents.register(karakeep_agent)
-    selectors = CompositeCapabilitySelector(seerr_agent, karakeep_agent)
-    orchestrator = Orchestrator(CapabilityPlanner(agents, selectors), DAGExecutor(agents))
+    notifications = NotificationService()
+    tools.register(
+        SendNotificationTool(notifications),
+        authorized_agents={
+            *(agent.definition.name for agent in skill_agents),
+            "control-plane",
+            "reminders",
+        },
+    )
+    reminders = ReminderService(tools)
+    tools.register(
+        CreateReminderTool(reminders),
+        authorized_agents={
+            *(agent.definition.name for agent in skill_agents),
+            "control-plane",
+        },
+    )
+    selectors = CompositeCapabilitySelector(karakeep_agent, usenet_agent, seerr_agent)
+    orchestrator = Orchestrator(CapabilityPlanner(agents, selectors), DAGExecutor(agents), sessions)
+    orchestrator.reminders = reminders  # type: ignore[attr-defined]
+    orchestrator.notifications = notifications  # type: ignore[attr-defined]
     orchestrator.approvals = approvals  # type: ignore[attr-defined]
     orchestrator.tools = tools  # type: ignore[attr-defined]
     orchestrator.seerr_agent = seerr_agent  # type: ignore[attr-defined]
     orchestrator.karakeep_agent = karakeep_agent  # type: ignore[attr-defined]
+    orchestrator.usenet_agent = usenet_agent  # type: ignore[attr-defined]
+    orchestrator.codex_queue = codex_queue  # type: ignore[attr-defined]
+    orchestrator.antigravity_queue = antigravity_queue  # type: ignore[attr-defined]
     orchestrator.registry = agents  # type: ignore[attr-defined]
     return orchestrator
 
@@ -158,6 +229,8 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         seerr_store: PostgresSeerrConfigurationStore | None = None
         karakeep_store: PostgresKarakeepConfigurationStore | None = None
+        usenet_store: PostgresUsenetConfigurationStore | None = None
+        usenet_client: HttpUsenetClient | None = None
         approval_store: PostgresApprovalStore | None = None
         saved_settings: SeerrSettings | None = None
         saved_karakeep_settings: KarakeepSettings | None = None
@@ -178,11 +251,47 @@ def create_app() -> FastAPI:
                 orchestrator.karakeep_agent.set_client(  # type: ignore[attr-defined]
                     HttpKarakeepClient(saved_karakeep_settings)
                 )
+            usenet_store = PostgresUsenetConfigurationStore(database_url, encryption_key)
+            await usenet_store.start()
+            saved_usenet = await usenet_store.load()
+            if saved_usenet:
+                usenet_client = HttpUsenetClient(saved_usenet)
+                orchestrator.usenet_agent.set_client(usenet_client)  # type: ignore[attr-defined]
+        webhook_store = None
+        if database_url:
+            webhook_store = PostgresWebhookEventStore(database_url)
+            await webhook_store.start()
+        app.state.webhook_events = webhook_store
+        notifications: NotificationService = orchestrator.notifications  # type: ignore[attr-defined]
+        notifications.store = webhook_store
+        saved_notifications = (
+            await webhook_store.load_notification_settings() if webhook_store else None
+        )
+        notifications.settings = saved_notifications or NotificationSettings(
+            recipient_id=os.getenv("ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT") or None,
+        )
+        session_store = None
+        if database_url:
+            session_store = PostgresSkillSessionStore(database_url)
+            await session_store.start()
+            if orchestrator.skill_sessions:
+                orchestrator.skill_sessions.store = session_store
+        presentation_store = None
+        if database_url:
+            presentation_store = PostgresSkillPresentationStore(database_url)
+            await presentation_store.start()
+            orchestrator.registry.get("status").presentations.update(  # type: ignore[attr-defined]
+                await presentation_store.load()
+            )
+        app.state.skill_presentations = presentation_store
         if database_url:
             approval_store = PostgresApprovalStore(database_url)
             await approval_store.start()
             orchestrator.approvals.hydrate(await approval_store.load())  # type: ignore[attr-defined]
             orchestrator.approvals.bind_persistence(approval_store.save)  # type: ignore[attr-defined]
+        app.state.usenet_configuration = usenet_store
+        app.state.usenet_client = usenet_client
+        app.state.usenet_configured = usenet_client is not None
         app.state.seerr_configuration = seerr_store
         app.state.seerr_configured = bool(saved_settings or configured_seerr_settings())
         app.state.karakeep_configuration = karakeep_store
@@ -193,22 +302,82 @@ def create_app() -> FastAPI:
         app.state.whatsapp = runtime
         if runtime:
             await runtime.start()
+        notifier = None
+        if runtime and webhook_store:
+            notifier = WebhookNotificationWorker(
+                webhook_store,
+                runtime,
+                os.getenv("ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT") or None,
+            )
+            notifier.configure(notifications.settings)
+            notifications.recipients = runtime.notification_recipients
+            await notifier.start()
+        notifications.notifier = notifier
+        app.state.webhook_notifier = notifier
+        reminder_service: ReminderService = orchestrator.reminders  # type: ignore[attr-defined]
+        reminder_store = None
+        reminder_worker = None
+        if database_url:
+            reminder_store = PostgresReminderStore(database_url)
+            await reminder_store.start()
+            reminder_service.store = reminder_store
+            reminder_worker = ReminderWorker(reminder_service)
+            await reminder_worker.start()
+        codex_delivery = None
+        if runtime and orchestrator.codex_queue.directory:  # type: ignore[attr-defined]
+            codex_delivery = CodexDeliveryWorker(orchestrator.codex_queue, runtime)  # type: ignore[attr-defined]
+            await codex_delivery.start()
+        antigravity_delivery = None
+        if runtime and orchestrator.antigravity_queue.directory:  # type: ignore[attr-defined]
+            antigravity_delivery = AntigravityDeliveryWorker(
+                orchestrator.antigravity_queue, runtime  # type: ignore[attr-defined]
+            )
+            await antigravity_delivery.start()
         try:
             yield
         finally:
+            if antigravity_delivery:
+                await antigravity_delivery.stop()
+            if codex_delivery:
+                await codex_delivery.stop()
+            if reminder_worker:
+                await reminder_worker.stop()
+            if reminder_store:
+                await reminder_store.aclose()
+            if notifier:
+                await notifier.stop()
             if runtime:
                 await runtime.stop()
             if seerr_store:
                 await seerr_store.aclose()
             if karakeep_store:
                 await karakeep_store.aclose()
+            if app.state.usenet_client:
+                await app.state.usenet_client.aclose()
+            if usenet_store:
+                await usenet_store.aclose()
             if approval_store:
                 await approval_store.aclose()
+            if presentation_store:
+                await presentation_store.aclose()
+            if session_store:
+                await session_store.aclose()
+            if webhook_store:
+                await webhook_store.aclose()
 
     app = FastAPI(
         title="Artemis API", version="0.1.0", openapi_url="/api/v1/openapi.json", lifespan=lifespan
     )
     app.state.orchestrator = orchestrator
+    install_usenet_routes(app, orchestrator)
+    install_skill_routes(app, orchestrator)
+    install_codex_routes(app, orchestrator.codex_queue)  # type: ignore[attr-defined]
+    install_antigravity_routes(app, orchestrator.antigravity_queue)  # type: ignore[attr-defined]
+    app.state.reminders = orchestrator.reminders  # type: ignore[attr-defined]
+    install_reminder_routes(app, app.state.reminders)
+    app.state.notifications = orchestrator.notifications  # type: ignore[attr-defined]
+    install_notification_routes(app, app.state.notifications, orchestrator.tools)  # type: ignore[attr-defined]
+    install_webhook_routes(app)
     app.mount("/metrics", make_asgi_app())
 
     @app.middleware("http")
@@ -220,6 +389,7 @@ def create_app() -> FastAPI:
             admin_token
             and request.url.path.startswith("/api/v1/")
             and request.url.path not in public_paths
+            and not is_webhook_ingest(request.method, request.url.path)
             and not secrets.compare_digest(
                 request.headers.get("authorization", ""), f"Bearer {admin_token}"
             )
@@ -228,7 +398,7 @@ def create_app() -> FastAPI:
                 status_code=401,
                 content={
                     "code": "unauthorized",
-                    "message": "Authentication required",
+                    "message": "Se requiere iniciar sesión",
                     "request_id": request_id,
                 },
                 headers={"x-request-id": request_id},
@@ -237,6 +407,12 @@ def create_app() -> FastAPI:
         response.headers["x-request-id"] = request_id
         REQUESTS.labels(path=request.url.path, status=str(response.status_code)).inc()
         return response
+
+    @app.exception_handler(UsenetClientError)
+    async def usenet_error(request: Request, exc: UsenetClientError) -> JSONResponse:
+        return JSONResponse(
+            status_code=502, content={"code": exc.code, "message": exc.safe_message}
+        )
 
     @app.exception_handler(PlanningError)
     async def planning_error(request: Request, exc: PlanningError) -> JSONResponse:
@@ -267,7 +443,7 @@ def create_app() -> FastAPI:
     def configured_whatsapp_runtime_for(agent_name: str) -> WhatsAppAgentRuntime:
         runtime: WhatsAppAgentRuntime | None = app.state.whatsapp
         if not runtime or runtime.status().agent_name != agent_name:
-            raise HTTPException(status_code=404, detail="WhatsApp agent is not configured")
+            raise HTTPException(status_code=404, detail="El agente de WhatsApp no está configurado")
         return runtime
 
     def available_capabilities() -> list[str]:
@@ -280,6 +456,9 @@ def create_app() -> FastAPI:
         configured_capabilities = {
             "seerr.media": app.state.seerr_configured,
             "karakeep.bookmarks": app.state.karakeep_configured,
+            "usenet.downloads": app.state.usenet_configured,
+            "antigravity.assistant": orchestrator.antigravity_queue.available,  # type: ignore[attr-defined]
+            "codex.assistant": orchestrator.codex_queue.available,  # type: ignore[attr-defined]
         }
         return [
             capability
@@ -292,7 +471,9 @@ def create_app() -> FastAPI:
         if not store:
             raise HTTPException(
                 status_code=503,
-                detail="Local encrypted skill configuration is unavailable in this deployment",
+                detail=(
+                    "La configuración cifrada de habilidades no está disponible en este despliegue"
+                ),
             )
         return store
 
@@ -301,7 +482,9 @@ def create_app() -> FastAPI:
         if not store:
             raise HTTPException(
                 status_code=503,
-                detail="Local encrypted skill configuration is unavailable in this deployment",
+                detail=(
+                    "La configuración cifrada de habilidades no está disponible en este despliegue"
+                ),
             )
         return store
 
@@ -341,22 +524,24 @@ def create_app() -> FastAPI:
         saved = await seerr_store().load()
         settings = saved or configured_seerr_settings()
         if not settings:
-            return SeerrConfigurationStatus(configured=False, last_test="Configure Seerr first")
+            return SeerrConfigurationStatus(configured=False, last_test="Configura Seerr primero")
         client = HttpSeerrClient(settings)
         try:
-            await client.search_media("Artemis connection check")
+            await client.test_connection()
         except SeerrClientError as error:
             return SeerrConfigurationStatus(
                 configured=True,
                 base_url=str(settings.base_url).rstrip("/"),
                 credential_source="control plane" if saved else "environment",
-                last_test=f"Connection failed: {error.code.value}",
+                last_test=f"Error de conexión: {error.safe_message}",
             )
+        finally:
+            await client.aclose()
         return SeerrConfigurationStatus(
             configured=True,
             base_url=str(settings.base_url).rstrip("/"),
             credential_source="control plane" if saved else "environment",
-            last_test="Connection verified",
+            last_test="Conexión verificada",
         )
 
     @app.get("/api/v1/skills/karakeep/configuration", response_model=KarakeepConfigurationStatus)
@@ -398,7 +583,7 @@ def create_app() -> FastAPI:
         settings = saved or configured_karakeep_settings()
         if not settings:
             return KarakeepConfigurationStatus(
-                configured=False, last_test="Configure Karakeep first"
+                configured=False, last_test="Configura Karakeep primero"
             )
         client = HttpKarakeepClient(settings)
         try:
@@ -408,13 +593,13 @@ def create_app() -> FastAPI:
                 configured=True,
                 base_url=str(settings.base_url).rstrip("/"),
                 credential_source="control plane" if saved else "environment",
-                last_test=f"Connection failed: {error.code}",
+                last_test=f"Error de conexión: {error.safe_message}",
             )
         return KarakeepConfigurationStatus(
             configured=True,
             base_url=str(settings.base_url).rstrip("/"),
             credential_source="control plane" if saved else "environment",
-            last_test="Connection verified",
+            last_test="Conexión verificada",
         )
 
     @app.get("/api/v1/agents/whatsapp/{agent_name}/skills", response_model=WhatsAppSkillBinding)
@@ -438,7 +623,7 @@ def create_app() -> FastAPI:
         unknown = sorted(optional_capabilities - set(available))
         if unknown:
             raise HTTPException(
-                status_code=422, detail=f"Unknown or inactive capabilities: {unknown}"
+                status_code=422, detail=f"Habilidades desconocidas o inactivas: {unknown}"
             )
         await runtime.set_capabilities(sorted(optional_capabilities))
         return WhatsAppSkillBinding(
@@ -496,6 +681,8 @@ def create_app() -> FastAPI:
             await orchestrator.seerr_agent.approve_operation(approval)  # type: ignore[attr-defined]
         if approval.tool_name == "karakeep.create_bookmark" and orchestrator.karakeep_agent:  # type: ignore[attr-defined]
             await orchestrator.karakeep_agent.approve_operation(approval)  # type: ignore[attr-defined]
+        if approval.agent_name == "usenet" and approval.tool_name.startswith("usenet."):
+            await orchestrator.usenet_agent.approve_operation(approval)  # type: ignore[attr-defined]
         return orchestrator.approvals.get(approval_id)  # type: ignore[attr-defined,no-any-return]
 
     @app.post("/api/v1/approvals/{approval_id}/reject", response_model=ApprovalRequest)

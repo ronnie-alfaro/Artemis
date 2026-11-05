@@ -177,4 +177,49 @@ def test_unconfigured_seerr_returns_a_safe_configuration_error() -> None:
             )
         )
     )
-    assert "Seerr is not configured" in response.message.content
+    assert "Seerr no está configurado" in response.message.content
+
+
+def test_connection_checks_authenticated_user_without_search() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/auth/me"
+        assert request.headers["X-Api-Key"] == "test-key"
+        return httpx.Response(200, json={"id": 1})
+
+    client = HttpSeerrClient(
+        SeerrSettings.model_validate({"base_url": "http://seerr:5055", "api_key": "test-key"}),
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    asyncio.run(client.test_connection())
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_connection_rejects_invalid_credentials(status: int) -> None:
+    client = HttpSeerrClient(
+        SeerrSettings.model_validate({"base_url": "http://seerr:5055", "api_key": "invalid"}),
+        httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(status, json={"message": "denied"})
+        )),
+    )
+    with pytest.raises(SeerrClientError):
+        asyncio.run(client.test_connection())
+
+
+@pytest.mark.parametrize(
+    "query,encoded",
+    [
+        ("dog stars", b"query=dog%20stars"),
+        ("Amélie & Dog+Stars?", b"query=Am%C3%A9lie%20%26%20Dog%2BStars%3F"),
+    ],
+)
+def test_search_encodes_spaces_and_reserved_characters(query: str, encoded: bytes) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.query == encoded
+        assert request.url.params["query"] == query
+        return httpx.Response(200, json={"results": []})
+
+    client = HttpSeerrClient(
+        SeerrSettings.model_validate({"base_url": "http://seerr:5055", "api_key": "test-key"}),
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    assert asyncio.run(client.search_media(query)).results == []

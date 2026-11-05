@@ -1,7 +1,15 @@
 services:
   artemis-api:
     build: ./backend
+    group_add: ["10002"]
+    volumes:
+      - ${ARTEMIS_CODEX_STATE_DIR:-/var/lib/artemis-codex}/queue:/data/codex
+      - ${ARTEMIS_ANTIGRAVITY_STATE_DIR:-/var/lib/artemis-antigravity}/queue:/data/antigravity
     environment:
+      ARTEMIS_ANTIGRAVITY_QUEUE_DIR: /data/antigravity
+      ARTEMIS_CODEX_QUEUE_DIR: /data/codex
+      ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT: ${ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT:-}
+      ARTEMIS_WEBHOOK_TOKEN: ${ARTEMIS_WEBHOOK_TOKEN:-}
       ARTEMIS_LOG_LEVEL: ${ARTEMIS_LOG_LEVEL:-INFO}
       SEERR_BASE_URL: ${SEERR_BASE_URL:-}
       SEERR_API_KEY: ${SEERR_API_KEY:-}
@@ -12,7 +20,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [internal, whatsapp-egress]
+    networks: [internal, whatsapp-egress, seerr]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -53,3 +61,6 @@ networks:
     internal: true
   edge: {}
   whatsapp-egress: {}
+  seerr:
+    external: true
+    name: seerr_default

@@ -40,7 +40,7 @@ class HttpWhatsAppClient:
             messages = [self._inbound(item) for item in value.get("messages", [])]
             return WhatsAppUpdateBatch(messages=messages, next_offset=data["next_offset"])
         except (KeyError, IndexError, TypeError, ValueError) as error:
-            raise WhatsAppTransportError("WhatsApp returned an invalid update payload") from error
+            raise WhatsAppTransportError("WhatsApp devolvió una actualización no válida") from error
 
     async def mark_read(self, message_id: str, typing: bool = False) -> None:
         payload: dict[str, object] = {
@@ -52,32 +52,34 @@ class HttpWhatsAppClient:
             payload["typing_indicator"] = {"type": "text"}
         await self._request("POST", "/statuses", json=payload)
 
-    async def send_text(self, recipient_id: str, message: OutgoingMessage, reply_to: str) -> str:
-        response = await self._request(
-            "POST",
-            "/messages",
-            json={
-                "messaging_product": "whatsapp",
-                "to": recipient_id,
-                "type": "text",
-                "context": {"message_id": reply_to},
-                "text": {"body": message.content[:4096]},
-            },
-        )
+    async def send_text(
+        self, recipient_id: str, message: OutgoingMessage, reply_to: str | None = None
+    ) -> str:
+        payload: dict[str, object] = {
+            "messaging_product": "whatsapp",
+            "to": recipient_id,
+            "type": "text",
+            "text": {"body": message.content[:4096]},
+        }
+        if reply_to:
+            payload["context"] = {"message_id": reply_to}
+        response = await self._request("POST", "/messages", json=payload)
         try:
             return str(response.json()["messages"][0]["id"])
         except (KeyError, IndexError, TypeError, ValueError) as error:
-            raise WhatsAppTransportError("WhatsApp returned an invalid send response") from error
+            raise WhatsAppTransportError(
+                "WhatsApp devolvió una respuesta de envío no válida"
+            ) from error
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         try:
             response = await self._client.request(method, path, **kwargs)
         except httpx.HTTPError as error:
-            raise WhatsAppTransportError("WhatsApp is unavailable") from error
+            raise WhatsAppTransportError("WhatsApp no está disponible") from error
         if response.status_code >= 400:
             # Do not reflect potentially sensitive provider detail.
             raise WhatsAppTransportError(
-                f"WhatsApp request failed with HTTP {response.status_code}"
+                f"La solicitud a WhatsApp falló con HTTP {response.status_code}"
             )
         return response
 
@@ -103,6 +105,8 @@ class HttpWhatsAppClient:
             timestamp=value["timestamp"],
             type=message_type,
             text=value.get("text", {}).get("body"),
+            reaction_emoji=value.get("reaction", {}).get("emoji"),
+            reaction_message_id=value.get("reaction", {}).get("message_id"),
             attachments=attachment,
         )
 

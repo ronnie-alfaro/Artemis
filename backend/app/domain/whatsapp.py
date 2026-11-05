@@ -48,6 +48,8 @@ class WhatsAppInbound(BaseModel):
     timestamp: str
     type: WhatsAppMessageType
     text: str | None = None
+    reaction_emoji: str | None = None
+    reaction_message_id: str | None = None
     attachments: list[WhatsAppAttachment] = Field(default_factory=list)
 
     @property
