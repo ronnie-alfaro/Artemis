@@ -15,6 +15,7 @@ from starlette.responses import Response
 
 from app.agents.antigravity import AntigravityAgent
 from app.agents.codex import CodexAgent
+from app.agents.github import GitHubAgent
 from app.agents.karakeep import KarakeepAgent
 from app.agents.seerr import SeerrAgent
 from app.agents.status import StatusAgent
@@ -92,6 +93,7 @@ from app.infrastructure.whatsapp_http import HttpWhatsAppClient
 from app.infrastructure.whatsapp_state import PostgresWhatsAppStateStore
 from app.tools.antigravity import AntigravityTool
 from app.tools.codex import CodexTool
+from app.tools.github import GitHubTool
 from app.tools.karakeep import KarakeepBookmarkTool
 from app.tools.notifications import SendNotificationTool
 from app.tools.registry import ToolRegistry
@@ -124,7 +126,12 @@ def build_orchestrator(
     antigravity_queue = AntigravityQueue(os.getenv("ARTEMIS_ANTIGRAVITY_QUEUE_DIR"))
     antigravity_agent = AntigravityAgent(antigravity_queue, tools)
     agents.register(antigravity_agent)
-    skill_agents = (seerr_agent, karakeep_agent, usenet_agent, codex_agent, antigravity_agent)
+    tools.register(GitHubTool(), authorized_agents={"github", "control-plane"})
+    github_agent = GitHubAgent(tools)
+    agents.register(github_agent)
+    skill_agents = (
+        github_agent, seerr_agent, karakeep_agent, usenet_agent, codex_agent, antigravity_agent,
+    )
     for create_tool in (False, True):
         tools.register(CodexTool(codex_queue, create_tool), authorized_agents={
             *(agent.definition.name for agent in skill_agents), "control-plane",
@@ -435,6 +442,11 @@ def create_app() -> FastAPI:
     async def auth_status() -> dict[str, bool]:
         return {"authentication_required": bool(os.getenv("ARTEMIS_ADMIN_TOKEN"))}
 
+    @app.get("/api/v1/skills/github/configuration")
+    async def github_configuration() -> dict[str, object]:
+        return {"configured": bool(os.getenv("GITHUB_TOKEN")),
+                "credential_source": "environment", "base_url": "https://api.github.com"}
+
     @app.get("/api/v1/channels/whatsapp", response_model=WhatsAppChannelStatus)
     async def whatsapp_status() -> WhatsAppChannelStatus:
         runtime: WhatsAppAgentRuntime | None = app.state.whatsapp
@@ -454,6 +466,7 @@ def create_app() -> FastAPI:
 
     def whatsapp_assignable_capabilities() -> list[str]:
         configured_capabilities = {
+            "github.repositories": bool(os.getenv("GITHUB_TOKEN")),
             "seerr.media": app.state.seerr_configured,
             "karakeep.bookmarks": app.state.karakeep_configured,
             "usenet.downloads": app.state.usenet_configured,

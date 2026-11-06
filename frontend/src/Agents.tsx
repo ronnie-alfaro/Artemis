@@ -78,6 +78,7 @@ export function Agents({ apiFetch }: Props) {
   };
   const skillLabel = (skill: string) => ({
     "seerr.media": "Películas y series · Seerr",
+    "github.repositories": "Repositorios y actividad · GitHub",
     "karakeep.bookmarks": "Buscar y guardar enlaces · Karakeep",
     "usenet.downloads": "Buscar y gestionar descargas · Usenet",
   }[skill] ?? skill);

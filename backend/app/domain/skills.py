@@ -16,6 +16,9 @@ class SkillPresentation(BaseModel):
 
 
 DEFAULT_PRESENTATIONS = {
+    "github": SkillPresentation(
+        name="GitHub", description="Consulta repositorios, commits, ramas, issues y pull requests."
+    ),
     "antigravity": SkillPresentation(
         name="Antigravity", description="Busca, revisa y modifica archivos con Google Antigravity."
     ),

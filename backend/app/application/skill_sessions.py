@@ -14,6 +14,7 @@ from app.domain.models import IncomingMessage, ReactionOption
 from app.domain.skills import SkillPresentation, help_target
 
 SKILL_CAPABILITIES = {
+    "github": "github.repositories",
     "antigravity": "antigravity.assistant",
     "codex": "codex.assistant",
     "usenet": "usenet.downloads",
