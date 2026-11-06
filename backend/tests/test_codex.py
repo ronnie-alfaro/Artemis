@@ -44,12 +44,16 @@ def test_skill_routes_questions_tool_requests_and_conversation_scoped_results(
         assert "crear herramienta" in (await send("ayuda")).message.content
         response = await send("¿Qué herramientas tiene Artemis?")
         assert "Petición" in response.message.content
+        assert "Codex" not in response.message.content
         queue = runtime.codex_queue
         question = queue.recent()[0]
         assert question.mode == "chat"
-        await send("crear herramienta para consultar un servidor")
+        assert str(question.id)[:8] in response.message.content
+        tool_response = await send("crear herramienta para consultar un servidor")
+        assert "Codex" not in tool_response.message.content
         tool = queue.recent()[0]
         assert tool.mode == "tool"
+        assert str(tool.id)[:8] in tool_response.message.content
         assert str(tool.id)[:8] in (await send("estado")).message.content
         question.status, question.answer = "completed", "Respuesta privada"
         queue.save(question)
@@ -97,6 +101,7 @@ def test_delivery_targets_origin_and_does_not_repeat_chunks_after_partial_failur
         except RuntimeError:
             pass
         assert len(channel.sent) == 1
+        assert channel.sent[0].startswith(f"*Artemis* · `{str(job.id)[:8]}`")
         assert not queue.load(job.id).delivered
         channel.fail = False
         await worker.run_once()

@@ -133,7 +133,7 @@ class CodexDeliveryWorker:
             # Persist progress per chunk, so a later chunk failing does not resend earlier ones.
             progress = self.queue.path(job.id, ".delivery")
             sent = int(progress.read_text()) if progress.exists() else 0
-            text = f"*Codex* · `{str(job.id)[:8]}`\n\n{job.answer}"
+            text = f"*Artemis* · `{str(job.id)[:8]}`\n\n{job.answer}"
             if job.has_patch:
                 text += "\n\nParche disponible en Habilidades → Codex."
             chunks = whatsapp_chunks(text, 3400)

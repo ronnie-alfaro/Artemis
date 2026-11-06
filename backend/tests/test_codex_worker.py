@@ -24,7 +24,9 @@ async def test_worker_executes_with_write_permissions_in_real_source(tmp_path, m
     cli.write_text(
         "#!/usr/bin/env python3\n"
         "import pathlib, sys\n"
-        "sys.stdin.read()\n"
+        'prompt = sys.stdin.read()\n'
+        'assert "Eres Artemis." in prompt\n'
+        'assert "irreverente, divertida e ingeniosa" in prompt\n'
         "args = sys.argv\n"
         'assert args[args.index("-s") + 1] == "danger-full-access"\n'
         'assert args[args.index("-c") + 1] == \'approval_policy="never"\'\n'

@@ -63,7 +63,7 @@ class CodexAgent:
                     f"{str(job.id)[:8]} · {labels[job.status]} · {job.prompt[:80]}"
                     for job in jobs[:5]
                 )
-                or "No tienes peticiones de Codex todavía."
+                or "Por aquí todavía no hay peticiones. La calma antes del teclado."
             )
         elif text.casefold().startswith("resultado "):
             target = text.split(maxsplit=1)[1].strip().casefold()
@@ -110,13 +110,13 @@ class CodexAgent:
                 )
                 job_id = result.output["id"]
                 content = ITERATION_REPLY if iteration else (
-                    f"Petición {job_id[:8]} recibida. "
+                    f"Petición {job_id[:8]} en mis manos. "
                     + (
-                        "Prepararé el código y las pruebas de la herramienta. "
+                        "Voy a darle forma a esa herramienta y pasarle las pruebas. "
                         if mode == "tool"
-                        else "Codex está preparando la respuesta. "
+                        else "Me pongo con ello; el teclado ya tiembla. "
                     )
-                    + "Te avisaré por este chat cuando termine."
+                    + "Cuando lo tenga, te cuento por aquí."
                 )
             except ValueError as error:
                 content = str(error)
