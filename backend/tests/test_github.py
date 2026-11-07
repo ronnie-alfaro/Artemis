@@ -78,3 +78,21 @@ def test_skill_activation_and_chat_use_registered_tool() -> None:
         assert "commits dueño/repo" in (await send("ayuda")).message.content
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("payload", [
+    [None],
+    ["unexpected"],
+    [{"commit": None}],
+    [{"commit": {"message": None}}],
+    [{"sha": None, "commit": {"message": "Fix"}}],
+])
+def test_malformed_commits_return_safe_error(payload) -> None:
+    tool = GitHubTool("test-secret", httpx.MockTransport(
+        lambda request: httpx.Response(200, json=payload)
+    ))
+    with pytest.raises(GitHubError, match="No pude leer GitHub"):
+        asyncio.run(tool.invoke(ToolInvocation(
+            tool_name="github.read", agent_name="github", risk_level=RiskLevel.READ,
+            input={"action": "commits", "repo": "owner/repo"},
+        )))

@@ -57,6 +57,17 @@ class GitHubTool:
                 data = response.json()
                 if not isinstance(data, list):
                     raise ValueError("Unexpected response")
+                for row in data:
+                    if not isinstance(row, dict):
+                        raise ValueError("Unexpected item")
+                    if action == "commits":
+                        commit = row.get("commit", {})
+                        if (
+                            not isinstance(commit, dict)
+                            or not isinstance(commit.get("message", ""), str)
+                            or not isinstance(row.get("sha", ""), str)
+                        ):
+                            raise ValueError("Unexpected commit")
         except httpx.HTTPStatusError as error:
             status = error.response.status_code
             messages = {
