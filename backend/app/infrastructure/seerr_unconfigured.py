@@ -5,6 +5,7 @@ from app.domain.seerr import (
     SeerrClientError,
     SeerrClientErrorCode,
     SeerrMedia,
+    SeerrPendingRequests,
     SeerrRequestInput,
     SeerrRequestResult,
     SeerrRequestStatus,
@@ -21,6 +22,9 @@ class UnconfiguredSeerrClient:
             SeerrClientErrorCode.CONFIGURATION,
             "Seerr no está configurado. Configura su conexión en Habilidades para empezar.",
         )
+
+    async def list_pending_requests(self, page: int = 1) -> SeerrPendingRequests:
+        raise self._error()
 
     async def search_media(self, query: str) -> SeerrSearchResult:
         raise self._error()

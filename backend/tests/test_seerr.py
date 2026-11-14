@@ -223,3 +223,88 @@ def test_search_encodes_spaces_and_reserved_characters(query: str, encoded: byte
         httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     assert asyncio.run(client.search_media(query)).results == []
+
+
+def test_pending_http_paginates_and_resolves_movie_and_tv_titles() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        if request.url.path == "/api/v1/request":
+            assert dict(request.url.params) == {
+                "filter": "unavailable", "take": "10", "skip": "10", "sort": "added"
+            }
+            return httpx.Response(200, json={"pageInfo": {"results": 12}, "results": [
+                {"id": 41, "type": "movie", "status": 1, "media": {"tmdbId": 1}},
+                {"id": 42, "type": "tv", "status": 2, "media": {"tmdbId": 2}},
+            ]})
+        if request.url.path == "/api/v1/movie/1":
+            return httpx.Response(200, json={"id": 1, "title": "Dune", "releaseDate": "2021-01-01"})
+        assert request.url.path == "/api/v1/tv/2"
+        return httpx.Response(200, json={"id": 2, "name": "Dark", "firstAirDate": "2017-01-01"})
+
+    client = HttpSeerrClient(
+        SeerrSettings(base_url="https://seerr.example", api_key="test-key"),
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = asyncio.run(client.list_pending_requests(2))
+    assert result.total == 12
+    assert result.page == 2
+    assert [item.media.title for item in result.results] == ["Dune", "Dark"]
+    assert result.results[0].status == "pendiente de aprobación"
+    assert "disponibilidad" in result.results[1].status
+
+
+@pytest.mark.parametrize("payload", [{}, {"results": [None]}, {"results": [], "pageInfo": {}}])
+def test_pending_rejects_malformed_response(payload: object) -> None:
+    client = HttpSeerrClient(
+        SeerrSettings(base_url="https://seerr.example", api_key="test-key"),
+        httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=payload)
+        )),
+    )
+    with pytest.raises(SeerrClientError) as error:
+        asyncio.run(client.list_pending_requests())
+    assert error.value.code == SeerrClientErrorCode.UNEXPECTED
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_pending_intent_is_read_only_and_preserves_local_approval(empty: bool) -> None:
+    from app.domain.seerr import SeerrPendingRequest, SeerrPendingRequests
+
+    class PendingSeerr(FakeSeerr):
+        async def list_pending_requests(self, page: int = 1) -> SeerrPendingRequests:
+            return SeerrPendingRequests(
+                results=[] if empty else [SeerrPendingRequest(
+                    request_id=42,
+                    media=SeerrMedia(media_type=MediaType.TV, tmdb_id=2, title="Dark"),
+                    status="pendiente de aprobación",
+                )], total=0 if empty else 11, page=page,
+            )
+
+    fake = PendingSeerr()
+    orchestrator, conversation = build_orchestrator(fake), uuid4()
+
+    def send(content: str):
+        return asyncio.run(orchestrator.handle(IncomingMessage(
+            conversation_id=conversation, channel=Channel(name="rest"), content=content,
+        )))
+
+    first = send("ver títulos pendientes")
+    assert first.executions[0].agent_name == "seerr"
+    assert ("No hay títulos pendientes" if empty else "Dark") in first.message.content
+    if not empty:
+        assert "página 2" in first.message.content
+    send("pedir Dune")
+    selected = send("1")
+    approval_id = UUID(selected.executions[0].result.metadata["approval_id"])
+    send("solicitudes pendientes")
+    assert orchestrator.approvals.get(approval_id).status.value == "pending"
+    assert fake.created == 0
+    assert "Solicitud creada" in send("confirmo").message.content
+
+
+def test_pending_unconfigured_error() -> None:
+    orchestrator = build_orchestrator()
+    response = asyncio.run(orchestrator.handle(IncomingMessage(
+        conversation_id=uuid4(), channel=Channel(name="rest"), content="ver títulos pendientes",
+    )))
+    assert "Seerr no está configurado" in response.message.content

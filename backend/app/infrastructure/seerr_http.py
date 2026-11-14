@@ -11,6 +11,8 @@ from app.domain.seerr import (
     SeerrClientError,
     SeerrClientErrorCode,
     SeerrMedia,
+    SeerrPendingRequest,
+    SeerrPendingRequests,
     SeerrRequestInput,
     SeerrRequestResult,
     SeerrRequestStatus,
@@ -35,6 +37,33 @@ class HttpSeerrClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    async def list_pending_requests(self, page: int = 1) -> SeerrPendingRequests:
+        if page < 1:
+            raise ValueError("page must be positive")
+        payload = await self._request(
+            "GET", f"/api/v1/request?filter=unavailable&take=10&skip={(page - 1) * 10}&sort=added"
+        )
+        try:
+            if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+                raise ValueError("Invalid request list")
+            results = []
+            for item in payload["results"]:
+                media_type = MediaType(item["type"])
+                media = await self.get_media_details(media_type, item["media"]["tmdbId"])
+                results.append(SeerrPendingRequest(
+                    request_id=item["id"], media=media,
+                    status={1: "pendiente de aprobación", 2: "aprobada; pendiente de disponibilidad"}.get(
+                        item["status"], "pendiente"
+                    ),
+                ))
+            return SeerrPendingRequests(
+                results=results, total=payload["pageInfo"]["results"], page=page
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise SeerrClientError(
+                SeerrClientErrorCode.UNEXPECTED, "Seerr devolvió una lista de pendientes no válida."
+            ) from error
 
     async def search_media(self, query: str) -> SeerrSearchResult:
         # Seerr rejects form-style '+' spaces; encode the query using RFC 3986.

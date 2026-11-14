@@ -26,6 +26,18 @@ class SeerrSearchResult(BaseModel):
     results: list[SeerrMedia]
 
 
+class SeerrPendingRequest(BaseModel):
+    request_id: int = Field(gt=0)
+    media: SeerrMedia
+    status: str
+
+
+class SeerrPendingRequests(BaseModel):
+    results: list[SeerrPendingRequest]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+
+
 class SeerrRequestInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     media_type: MediaType
@@ -89,6 +101,8 @@ class SeerrConfigurationInput(BaseModel):
 
 
 class SeerrClient(Protocol):
+    async def list_pending_requests(self, page: int = 1) -> SeerrPendingRequests: ...
+
     async def search_media(self, query: str) -> SeerrSearchResult: ...
 
     async def get_media_details(self, media_type: MediaType, tmdb_id: int) -> SeerrMedia: ...

@@ -26,3 +26,16 @@ Deploy a disposable Seerr outside this Compose file, use a least-privilege reque
 
 Para recibir solicitudes disponibles y otros cambios en **Tools → Webhooks**,
 consulta [Eventos por webhook](webhooks.md).
+
+## Consultar títulos pendientes
+
+Escribe `ver títulos pendientes` (o `solicitudes pendientes`). La consulta es de
+solo lectura y muestra hasta 10 solicitudes por página, con título, año, tipo,
+estado e ID. Incluye solicitudes pendientes de aprobación y aprobadas cuyo
+contenido aún no está disponible por completo; no incluye rechazadas ni fallidas.
+Continúa con `ver títulos pendientes página 2`. No modifica selecciones ni
+aprobaciones locales. La visibilidad depende de los permisos de la clave de Seerr.
+
+Se usa `GET /api/v1/request?filter=unavailable`, según las
+[rutas oficiales de Seerr](https://github.com/seerr-team/seerr/blob/develop/server/routes/request.ts),
+y los detalles de cada película o serie para obtener su título.

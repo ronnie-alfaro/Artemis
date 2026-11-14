@@ -33,13 +33,16 @@ class SeerrAgent:
     definition = Agent(
         name="seerr",
         version="0.1.0",
-        purpose="Busca títulos en Seerr y prepara solicitudes confirmadas.",
+        purpose="Busca títulos, muestra pendientes en Seerr y prepara solicitudes confirmadas.",
         capabilities=[
             AgentCapability(
                 name="seerr.media",
-                description="Busca y solicita películas y series en Seerr",
+                description="Busca, consulta pendientes y solicita películas y series en Seerr",
                 help_text=(
                     "Seerr · Películas y series:\n"
+                    "• Ver títulos pendientes: escribe ‘ver títulos pendientes’. "
+                    "Incluye solicitudes por aprobar y aún no disponibles. "
+                    "Usa ‘ver títulos pendientes página 2’ para continuar.\n"
                     "• Buscar títulos: escribe ‘quiero pedir <título>’. "
                     "Verás hasta 5 opciones con título, año, tipo e ID de TMDB.\n"
                     "• Preparar una solicitud: responde con el número de una opción. "
@@ -52,6 +55,7 @@ class SeerrAgent:
         ],
         permissions=[
             Permission(name="seerr.search.read", description="Search Seerr"),
+            Permission(name="seerr.request.read", description="List pending Seerr requests"),
             Permission(name="seerr.request.write", description="Request approved media"),
         ],
         risk_level=RiskLevel.WRITE,
@@ -73,6 +77,8 @@ class SeerrAgent:
             message.conversation_id, agent_name="seerr"
         ):
             return "seerr.media"
+        if self._pending_page(message.content) is not None:
+            return "seerr.media"
         intent = message.content.lower()
         if any(
             word in intent
@@ -86,6 +92,9 @@ class SeerrAgent:
         conversation_id = request.message.conversation_id
         state = self._states.setdefault(conversation_id, ConversationState())
         pending = self._approvals.pending_for_conversation(conversation_id, agent_name="seerr")
+        page = self._pending_page(content)
+        if page is not None:
+            return await self._list_pending(request, page)
         if self._is_confirmation(content):
             return await self._confirm(request, pending)
         if content.lower() in {"no", "rechazo", "cancelar", "cancela"} and len(pending) == 1:
@@ -95,6 +104,39 @@ class SeerrAgent:
         if state.candidates and content.isdigit():
             return await self._select(request, state, int(content))
         return await self._search(request, state, content)
+
+    @staticmethod
+    def _pending_page(content: str) -> int | None:
+        match = re.fullmatch(
+            r"(?:(?:ver|listar|mostrar|muéstrame|muestrame)\s+)?"
+            r"(?:(?:los|las)\s+)?"
+            r"(?:(?:t[ií]tulos|solicitudes|pel[ií]culas|series)\s+)?pendientes"
+            r"(?:\s+(?:en|de)\s+seerr)?(?:\s+p[aá]gina\s+([1-9]\d{0,5}))?[.!?]?",
+            content.strip(), re.IGNORECASE,
+        )
+        return int(match.group(1) or 1) if match else None
+
+    async def _list_pending(self, request: AgentRequest, page: int) -> AgentResponse:
+        try:
+            result = await self._client.list_pending_requests(page)
+        except SeerrClientError as error:
+            return self._response(request, error.safe_message, {"seerr_error": error.code.value})
+        if not result.results:
+            message = (
+                "No hay títulos pendientes en Seerr." if result.total == 0
+                else "No hay resultados en esta página. Prueba ‘ver títulos pendientes’."
+            )
+        else:
+            lines = [
+                f"• {item.media.title} ({item.media.year or 'sin año'}) · "
+                f"{'película' if item.media.media_type is MediaType.MOVIE else 'serie'} · "
+                f"{item.status} · ID {item.request_id}"
+                for item in result.results
+            ]
+            message = f"Títulos pendientes en Seerr · página {page} · {result.total} solicitudes:\n" + "\n".join(lines)
+            if page * 10 < result.total:
+                message += f"\nPara continuar: ver títulos pendientes página {page + 1}"
+        return self._response(request, message, {"tool": "seerr.list_pending_requests"})
 
     async def _search(
         self, request: AgentRequest, state: ConversationState, content: str
