@@ -27,8 +27,10 @@ class WhatsAppAgentRuntime:
         handle: HandleMessage,
         *,
         channel_name: str = "whatsapp",
+        allowed_recipient_ids: frozenset[str] | None = None,
     ) -> None:
         self._settings, self._client, self._state, self._handle = settings, client, state, handle
+        self._allowed_recipient_ids = allowed_recipient_ids
         self._channel_name = channel_name
         self._agent_key = (settings.agent_name if channel_name == "whatsapp"
                            else f"{channel_name}:{settings.agent_name}")
@@ -84,10 +86,12 @@ class WhatsAppAgentRuntime:
         await self._state.set_greeting(self._agent_key, greeting)
 
     async def notification_recipients(self) -> list[str]:
-        return await self._state.participants_for(self._agent_key)
+        participants = await self._state.participants_for(self._agent_key)
+        return [value for value in participants
+                if self._allowed_recipient_ids is None or value in self._allowed_recipient_ids]
 
     async def notification_recipient(self, preferred: str | None = None) -> str | None:
-        participants = await self._state.participants_for(self._agent_key)
+        participants = await self.notification_recipients()
         if preferred:
             return preferred if preferred in participants else None
         return participants[0] if len(participants) == 1 else None
@@ -133,6 +137,10 @@ class WhatsAppAgentRuntime:
             await self._process(inbound)
 
     async def _process(self, inbound: WhatsAppInbound) -> None:
+        if (self._allowed_recipient_ids is not None
+                and inbound.sender_id not in self._allowed_recipient_ids):
+            await self._state.mark_completed(self._agent_key, inbound)
+            return
         if await self._state.completed(self._agent_key, inbound.id):
             return
         content = inbound.content

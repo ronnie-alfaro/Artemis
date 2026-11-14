@@ -49,7 +49,7 @@ describe("Artemis en español", () => {
     render(<App/>);
     fireEvent.click(await screen.findByRole("button", { name: "Canales" }));
     expect(await screen.findByRole("heading", { name: "Telegram" })).toBeDefined();
-    expect(await screen.findByText(/Configura TELEGRAM_BOT_TOKEN/)).toBeDefined();
+    expect(await screen.findByText("Conexión de Telegram")).toBeDefined();
     expect(screen.getByRole("heading", { name: "WhatsApp" })).toBeDefined();
   });
 

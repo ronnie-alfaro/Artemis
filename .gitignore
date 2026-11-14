@@ -13,3 +13,6 @@ coverage/
 # Local metadata and temporary work artifacts
 ._*
 /tmp/
+
+# AWS SDK credentials must stay outside version control
+.aws/

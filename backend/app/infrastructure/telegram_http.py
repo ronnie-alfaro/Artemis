@@ -34,9 +34,9 @@ class HttpTelegramClient:
     ) -> None:
         if not allowed_user_ids:
             raise ValueError("TELEGRAM_ALLOWED_USER_IDS must contain at least one user ID")
-        redactor = _RedactBotToken(settings.token.get_secret_value())
+        self._redactor = _RedactBotToken(settings.token.get_secret_value())
         for name in ("httpx", "httpcore.connection", "httpcore.http11", "httpcore.http2"):
-            logging.getLogger(name).addFilter(redactor)
+            logging.getLogger(name).addFilter(self._redactor)
         self._allowed = allowed_user_ids
         self._client = httpx.AsyncClient(
             base_url=f"https://api.telegram.org/bot{settings.token.get_secret_value()}/",
@@ -60,6 +60,12 @@ class HttpTelegramClient:
         if failed:
             raise RuntimeError("Telegram Bot API request failed")
         return result
+
+    async def test_connection(self) -> None:
+        await self._call("getMe", {})
+        webhook = await self._call("getWebhookInfo", {})
+        if webhook.get("url"):
+            raise ValueError("El bot tiene un webhook activo; retíralo antes de usar long polling.")
 
     async def updates(self, offset: int | None, timeout: int) -> WhatsAppUpdateBatch:
         payload: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["message"]}
@@ -99,3 +105,5 @@ class HttpTelegramClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+        for name in ("httpx", "httpcore.connection", "httpcore.http11", "httpcore.http2"):
+            logging.getLogger(name).removeFilter(self._redactor)

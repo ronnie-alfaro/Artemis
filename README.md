@@ -89,3 +89,7 @@ Google Antigravity: [uso, permisos e instalación](docs/antigravity.md).
 ### Canal Telegram
 
 Puedes conectar un bot de Telegram con las habilidades existentes. Consulta la [configuración de Telegram](docs/telegram.md).
+
+### Configuración cifrada con AWS KMS
+
+Consulta [AWS KMS y recarga de canales](docs/aws-kms.md) para proteger los secretos guardados en PostgreSQL y administrar WhatsApp y Telegram sin reiniciar Docker.

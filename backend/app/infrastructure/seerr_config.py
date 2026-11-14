@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import asyncpg
-from cryptography.fernet import Fernet, InvalidToken
 
 from app.domain.seerr import SeerrConfigurationInput, SeerrSettings
+from app.infrastructure.config_cipher import ConfigurationCipher, configuration_cipher
 
 
 class PostgresSeerrConfigurationStore:
     """Stores only an encrypted local copy of the Seerr API key."""
 
-    def __init__(self, database_url: str, encryption_key: str) -> None:
+    def __init__(self, database_url: str, encryption_key: str | ConfigurationCipher) -> None:
         self._database_url = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-        self._fernet = Fernet(encryption_key.encode())
+        self._cipher = configuration_cipher(encryption_key)
         self._pool: asyncpg.Pool | None = None
 
     async def start(self) -> None:
@@ -39,17 +39,12 @@ class PostgresSeerrConfigurationStore:
         )
         if not row:
             return None
-        try:
-            api_key = self._fernet.decrypt(bytes(row["encrypted_api_key"])).decode()
-        except InvalidToken as error:
-            raise RuntimeError(
-                "Seerr credentials cannot be decrypted with this deployment key"
-            ) from error
+        api_key = (await self._cipher.decrypt(bytes(row["encrypted_api_key"]), "seerr")).decode()
         return SeerrSettings.model_validate({"base_url": row["base_url"], "api_key": api_key})
 
     async def save(self, configuration: SeerrConfigurationInput) -> SeerrSettings:
         settings = SeerrSettings.model_validate(configuration.model_dump())
-        encrypted = self._fernet.encrypt(settings.api_key.encode())
+        encrypted = await self._cipher.encrypt(settings.api_key.encode(), "seerr")
         await self._connection_pool.execute(
             """
             INSERT INTO seerr_configuration(singleton, base_url, encrypted_api_key)

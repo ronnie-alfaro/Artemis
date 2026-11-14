@@ -4,7 +4,7 @@ El canal reutiliza el orquestador, las habilidades, las aprobaciones y las herra
 WhatsApp y Telegram mantienen conversaciones, cursores y asignaciones independientes en PostgreSQL.
 
 1. Crea un bot con [BotFather](https://t.me/BotFather).
-2. Configura `TELEGRAM_BOT_TOKEN` con su token y `TELEGRAM_ALLOWED_USER_IDS` con los identificadores numéricos de los usuarios autorizados, separados por comas. No uses nombres de usuario. La lista es obligatoria; solo se aceptan chats privados de esos usuarios.
+2. Puedes usar **Canales → Conexión de Telegram** si ya está habilitado el almacenamiento cifrado ([guía KMS](aws-kms.md)); guarda y aplica sin reiniciar Docker. Como alternativa inicial, configura `TELEGRAM_BOT_TOKEN` con su token y `TELEGRAM_ALLOWED_USER_IDS` con los identificadores numéricos de los usuarios autorizados, separados por comas. No uses nombres de usuario. La lista es obligatoria; solo se aceptan chats privados de esos usuarios.
 3. Configura `DATABASE_URL` (Docker Compose ya lo proporciona).
 4. Tras reiniciar el servicio con esta configuración, abre **Agentes → Telegram**, asigna las habilidades y guarda. Puedes personalizar el saludo.
 5. Escribe `/start` al bot. Usa «utiliza HABILIDAD», «ayuda» y «salir» como en WhatsApp. `/help` equivale a «ayuda».

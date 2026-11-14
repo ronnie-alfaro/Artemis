@@ -25,20 +25,40 @@ def test_private_authorized_chat_reuses_orchestrator_and_durable_inbox(caplog):
         def transport(request):
             requests.append(request)
             if request.url.path.endswith("getUpdates"):
-                return httpx.Response(200, json={"ok": True, "result": [
-                    {"update_id": i, "message": {"chat": {"id": uid, "type": kind},
-                     "from": {"id": uid}, "text": "/start"}}
-                    for i, uid, kind in [(1, 42, "private"), (2, 99, "private"),
-                                         (3, 42, "group")]
-                ]})
+                return httpx.Response(
+                    200,
+                    json={
+                        "ok": True,
+                        "result": [
+                            {
+                                "update_id": i,
+                                "message": {
+                                    "chat": {"id": uid, "type": kind},
+                                    "from": {"id": uid},
+                                    "text": "/start",
+                                },
+                            }
+                            for i, uid, kind in [
+                                (1, 42, "private"),
+                                (2, 99, "private"),
+                                (3, 42, "group"),
+                            ]
+                        ],
+                    },
+                )
             return httpx.Response(200, json={"ok": True, "result": {"message_id": 10}})
 
         async def handle(incoming):
             calls.append(incoming)
-            return ChatResponse(message=OutgoingMessage(
-                conversation_id=incoming.conversation_id, execution_id=uuid4(), content="Listo",
-            ), plan=ExecutionPlan(conversation_id=incoming.conversation_id, nodes=[]),
-                executions=[])
+            return ChatResponse(
+                message=OutgoingMessage(
+                    conversation_id=incoming.conversation_id,
+                    execution_id=uuid4(),
+                    content="Listo",
+                ),
+                plan=ExecutionPlan(conversation_id=incoming.conversation_id, nodes=[]),
+                executions=[],
+            )
 
         state = FakeState()
         client = HttpTelegramClient(settings(), {42}, httpx.MockTransport(transport))
@@ -61,8 +81,11 @@ def test_private_authorized_chat_reuses_orchestrator_and_durable_inbox(caplog):
 
 def test_bot_api_errors_are_safe_and_cursor_is_not_advanced():
     async def run():
-        client = HttpTelegramClient(settings(), {42}, httpx.MockTransport(
-            lambda request: httpx.Response(401, json={"ok": False})))
+        client = HttpTelegramClient(
+            settings(),
+            {42},
+            httpx.MockTransport(lambda request: httpx.Response(401, json={"ok": False})),
+        )
         state = FakeState()
         runtime = WhatsAppAgentRuntime(settings(), client, state, None, channel_name="telegram")
         with pytest.raises(RuntimeError, match="Telegram Bot API request failed") as error:
@@ -71,6 +94,7 @@ def test_bot_api_errors_are_safe_and_cursor_is_not_advanced():
         assert error.value.__context__ is None
         assert state.offset is None
         await client.aclose()
+
     asyncio.run(run())
 
 
@@ -109,3 +133,31 @@ def test_async_results_return_to_telegram_conversation(tmp_path, provider):
     assert len(channel.sent) == 1
     assert channel.sent[0][0] == "42"
     assert "Resultado para Telegram" in channel.sent[0][1]
+
+
+def test_revoked_user_cannot_execute_messages_already_queued():
+    async def run():
+        from test_whatsapp import FakeClient
+
+        from app.domain.whatsapp import WhatsAppInbound, WhatsAppMessageType, WhatsAppUpdateBatch
+
+        async def handle(incoming):
+            raise AssertionError("Revoked user must not reach tools")
+
+        state = FakeState()
+        inbound = WhatsAppInbound(
+            id="old", sender_id="99", timestamp="0", type=WhatsAppMessageType.TEXT, text="run tool"
+        )
+        await state.enqueue("telegram:123", inbound)
+        runtime = WhatsAppAgentRuntime(
+            settings(),
+            FakeClient(WhatsAppUpdateBatch(next_offset=1)),
+            state,
+            handle,
+            channel_name="telegram",
+            allowed_recipient_ids=frozenset({"42"}),
+        )
+        await runtime.run_once()
+        assert "old" in state.complete
+
+    asyncio.run(run())

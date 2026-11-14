@@ -7,6 +7,8 @@ from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, make_asgi_app
 from pydantic import SecretStr
@@ -29,6 +31,7 @@ from app.api.usenet import install_usenet_routes
 from app.api.webhooks import install_webhook_routes, is_webhook_ingest
 from app.application.antigravity import AntigravityDeliveryWorker, AntigravityQueue
 from app.application.approvals import ApprovalStore
+from app.application.channels import ChannelController
 from app.application.codex import CodexDeliveryWorker, CodexQueue
 from app.application.notifications import NotificationService
 from app.application.orchestrator import (
@@ -43,6 +46,12 @@ from app.application.reminders import ReminderService, ReminderWorker
 from app.application.skill_sessions import SkillSessionRouter
 from app.application.webhook_notifications import WebhookNotificationWorker
 from app.application.whatsapp import WhatsAppAgentRuntime
+from app.domain.channels import (
+    ChannelConfigurationInput,
+    ChannelConfigurationStatus,
+    ChannelConnection,
+    Provider,
+)
 from app.domain.karakeep import (
     KarakeepClient,
     KarakeepClientError,
@@ -77,6 +86,8 @@ from app.domain.whatsapp import (
     WhatsAppSkillSelection,
 )
 from app.infrastructure.approval_state import PostgresApprovalStore
+from app.infrastructure.channel_config import PostgresChannelConfigurationStore
+from app.infrastructure.config_cipher import ConfigurationEncryptionError, configured_cipher
 from app.infrastructure.karakeep_config import PostgresKarakeepConfigurationStore
 from app.infrastructure.karakeep_http import HttpKarakeepClient
 from app.infrastructure.karakeep_unconfigured import UnconfiguredKarakeepClient
@@ -214,38 +225,6 @@ def configured_karakeep_settings() -> KarakeepSettings | None:
     return KarakeepSettings.model_validate({"base_url": base_url, "api_key": api_key})
 
 
-def configured_whatsapp_runtime(orchestrator: Orchestrator) -> WhatsAppAgentRuntime | None:
-    token = os.getenv("WHATSAPP_AGENT_TOKEN")
-    if not token:
-        return None
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL is required when WHATSAPP_AGENT_TOKEN is configured")
-    settings = WhatsAppSettings(
-        agent_name=os.getenv("WHATSAPP_AGENT_NAME", "primary"),
-        token=SecretStr(token),
-    )
-    state = PostgresWhatsAppStateStore(database_url)
-    client = HttpWhatsAppClient(settings)
-    return WhatsAppAgentRuntime(settings, client, state, orchestrator.handle)
-
-
-def configured_telegram_runtime(orchestrator: Orchestrator) -> WhatsAppAgentRuntime | None:
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token:
-        return None
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL is required when TELEGRAM_BOT_TOKEN is configured")
-    allowed = {int(value.strip()) for value in
-               os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",") if value.strip()}
-    settings = WhatsAppSettings(agent_name=token.split(":", 1)[0], token=SecretStr(token))
-    return WhatsAppAgentRuntime(
-        settings, HttpTelegramClient(settings, allowed), PostgresWhatsAppStateStore(database_url),
-        orchestrator.handle, channel_name="telegram",
-    )
-
-
 def create_app() -> FastAPI:
     orchestrator = build_orchestrator(configured_seerr_client(), configured_karakeep_client())
 
@@ -258,10 +237,7 @@ def create_app() -> FastAPI:
         approval_store: PostgresApprovalStore | None = None
         saved_settings: SeerrSettings | None = None
         saved_karakeep_settings: KarakeepSettings | None = None
-        database_url, encryption_key = (
-            os.getenv("DATABASE_URL"),
-            os.getenv("ARTEMIS_CONFIG_ENCRYPTION_KEY"),
-        )
+        database_url, encryption_key = os.getenv("DATABASE_URL"), configured_cipher()
         if database_url and encryption_key:
             seerr_store = PostgresSeerrConfigurationStore(database_url, encryption_key)
             await seerr_store.start()
@@ -322,36 +298,102 @@ def create_app() -> FastAPI:
         app.state.karakeep_configured = bool(
             saved_karakeep_settings or configured_karakeep_settings()
         )
-        runtime = configured_whatsapp_runtime(orchestrator)
-        app.state.whatsapp = runtime
-        if runtime:
-            await runtime.start()
-        telegram = configured_telegram_runtime(orchestrator)
-        app.state.telegram = telegram
-        if telegram:
-            await telegram.start()
-        telegram_deliveries = []
-        if telegram:
-            for queue, worker_type in (
-                (orchestrator.codex_queue, CodexDeliveryWorker),  # type: ignore[attr-defined]
-                (orchestrator.antigravity_queue, AntigravityDeliveryWorker),  # type: ignore[attr-defined]
-            ):
-                if queue.directory:
-                    worker = worker_type(queue, telegram)
-                    await worker.start()
-                    telegram_deliveries.append(worker)
-        notifier = None
-        if runtime and webhook_store:
-            notifier = WebhookNotificationWorker(
-                webhook_store,
-                runtime,
-                os.getenv("ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT") or None,
+        channel_store = None
+        if database_url and encryption_key:
+            channel_store = PostgresChannelConfigurationStore(database_url, encryption_key)
+            await channel_store.start()
+
+        def channel_factory(
+            provider: Provider, connection: ChannelConnection,
+        ) -> WhatsAppAgentRuntime:
+            if not database_url:
+                raise RuntimeError("DATABASE_URL is required for messaging channels")
+            settings = WhatsAppSettings(agent_name=connection.agent_name, token=connection.token)
+            client = (HttpTelegramClient(settings, set(connection.allowed_user_ids))
+                      if provider == "telegram" else HttpWhatsAppClient(settings))
+            return WhatsAppAgentRuntime(
+                settings, client, PostgresWhatsAppStateStore(database_url), orchestrator.handle,
+                channel_name=provider,
+                allowed_recipient_ids=(
+                    frozenset(str(value) for value in connection.allowed_user_ids)
+                    if provider == "telegram" else None
+                ),
             )
-            notifier.configure(notifications.settings)
+
+        async def validate_telegram(connection: ChannelConnection) -> None:
+            client = HttpTelegramClient(
+                WhatsAppSettings(agent_name=connection.agent_name, token=connection.token),
+                set(connection.allowed_user_ids),
+            )
+            try:
+                await client.test_connection()
+            except Exception:
+                raise ValueError("No se pudo verificar la conexión con Telegram.") from None
+            finally:
+                await client.aclose()
+
+        def whatsapp_environment() -> ChannelConnection | None:
+            token = os.getenv("WHATSAPP_AGENT_TOKEN")
+            if not token:
+                return None
+            return ChannelConnection(
+                token=SecretStr(token), agent_name=os.getenv("WHATSAPP_AGENT_NAME", "primary"),
+            )
+
+        def telegram_environment() -> ChannelConnection | None:
+            token = os.getenv("TELEGRAM_BOT_TOKEN")
+            if not token:
+                return None
+            return ChannelConnection(
+                token=SecretStr(token), agent_name=token.split(":", 1)[0],
+                allowed_user_ids=[int(value.strip()) for value in
+                                  os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",")
+                                  if value.strip()],
+            )
+
+        runtime = ChannelController(
+            "whatsapp", channel_store, whatsapp_environment,
+            lambda connection: channel_factory("whatsapp", connection),
+        )
+        telegram = ChannelController(
+            "telegram", channel_store, telegram_environment,
+            lambda connection: channel_factory("telegram", connection),
+            validate=validate_telegram,
+        )
+        app.state.whatsapp, app.state.telegram = runtime, telegram
+        await runtime.start()
+        await telegram.start()
+        telegram_deliveries = []
+        for queue, worker_type in (
+            (orchestrator.codex_queue, CodexDeliveryWorker),  # type: ignore[attr-defined]
+            (orchestrator.antigravity_queue, AntigravityDeliveryWorker),  # type: ignore[attr-defined]
+        ):
+            if queue.directory:
+                worker = worker_type(queue, telegram)
+                await worker.start()
+                telegram_deliveries.append(worker)
+
+        notifier: WebhookNotificationWorker | None = None
+        app.state.webhook_notifier = None
+
+        async def refresh_whatsapp_notifier() -> None:
+            nonlocal notifier
+            if notifier:
+                await notifier.stop()
+            notifier = None
+            if runtime.runtime and webhook_store:
+                notifier = WebhookNotificationWorker(
+                    webhook_store, runtime,
+                    os.getenv("ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT") or None,
+                )
+                notifier.configure(notifications.settings)
+                await notifier.start()
             notifications.recipients = runtime.notification_recipients
-            await notifier.start()
-        notifications.notifier = notifier
-        app.state.webhook_notifier = notifier
+            notifications.notifier = notifier
+            app.state.webhook_notifier = notifier
+
+        app.state.refresh_whatsapp_notifier = refresh_whatsapp_notifier
+        await refresh_whatsapp_notifier()
         reminder_service: ReminderService = orchestrator.reminders  # type: ignore[attr-defined]
         reminder_store = None
         reminder_worker = None
@@ -388,6 +430,8 @@ def create_app() -> FastAPI:
                 await reminder_store.aclose()
             if notifier:
                 await notifier.stop()
+            if channel_store:
+                await channel_store.aclose()
             if runtime:
                 await runtime.stop()
             if seerr_store:
@@ -450,6 +494,20 @@ def create_app() -> FastAPI:
         REQUESTS.labels(path=request.url.path, status=str(response.status_code)).inc()
         return response
 
+    @app.exception_handler(RequestValidationError)
+    async def configuration_validation_error(
+        request: Request, exc: RequestValidationError,
+    ) -> Response:
+        if request.url.path.startswith("/api/v1/channels/"):
+            return JSONResponse(
+                status_code=422, content={"detail": "Configuración del canal inválida."},
+            )
+        return await request_validation_exception_handler(request, exc)
+
+    @app.exception_handler(ConfigurationEncryptionError)
+    async def encryption_error(request: Request, exc: ConfigurationEncryptionError) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
+
     @app.exception_handler(UsenetClientError)
     async def usenet_error(request: Request, exc: UsenetClientError) -> JSONResponse:
         return JSONResponse(
@@ -488,7 +546,10 @@ def create_app() -> FastAPI:
         return runtime.status() if runtime else WhatsAppChannelStatus(configured=False)
 
     def configured_whatsapp_runtime_for(agent_name: str) -> WhatsAppAgentRuntime:
-        runtime: WhatsAppAgentRuntime | None = app.state.whatsapp
+        channel = app.state.whatsapp
+        runtime: WhatsAppAgentRuntime | None = (
+            channel.runtime if isinstance(channel, ChannelController) else channel
+        )
         if not runtime or runtime.status().agent_name != agent_name:
             raise HTTPException(status_code=404, detail="El agente de WhatsApp no está configurado")
         return runtime
@@ -499,10 +560,37 @@ def create_app() -> FastAPI:
         return runtime.status() if runtime else WhatsAppChannelStatus(configured=False)
 
     def configured_telegram_runtime_for(agent_name: str) -> WhatsAppAgentRuntime:
-        runtime: WhatsAppAgentRuntime | None = app.state.telegram
+        channel = app.state.telegram
+        runtime: WhatsAppAgentRuntime | None = (
+            channel.runtime if isinstance(channel, ChannelController) else channel
+        )
         if not runtime or runtime.status().agent_name != agent_name:
             raise HTTPException(status_code=404, detail="El bot de Telegram no está configurado")
         return runtime
+
+    @app.get("/api/v1/channels/{provider}/configuration", response_model=ChannelConfigurationStatus)
+    async def channel_configuration(provider: Provider) -> ChannelConfigurationStatus:
+        controller: ChannelController = getattr(app.state, provider)
+        return controller.configuration()
+
+    @app.put("/api/v1/channels/{provider}/configuration", response_model=ChannelConfigurationStatus)
+    async def update_channel_configuration(
+        provider: Provider, payload: ChannelConfigurationInput,
+    ) -> ChannelConfigurationStatus:
+        controller: ChannelController = getattr(app.state, provider)
+        if controller.store is None:
+            raise HTTPException(503, "Configura el cifrado y PostgreSQL para guardar los canales.")
+        try:
+            result = await controller.configure(payload)
+        except ValueError:
+            raise HTTPException(422, "Revisa el token y los identificadores de usuarios.") from None
+        except ConfigurationEncryptionError:
+            raise
+        except RuntimeError:
+            raise HTTPException(503, "No se pudo aplicar la configuración del canal.") from None
+        if provider == "whatsapp":
+            await app.state.refresh_whatsapp_notifier()
+        return result
 
     def available_capabilities() -> list[str]:
         registry: AgentRegistry = orchestrator.registry  # type: ignore[attr-defined]

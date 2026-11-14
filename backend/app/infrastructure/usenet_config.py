@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 
 import asyncpg
-from cryptography.fernet import Fernet
 
 from app.domain.usenet import UsenetConfigurationInput, UsenetSettings
+from app.infrastructure.config_cipher import ConfigurationCipher, configuration_cipher
 
 
 class PostgresUsenetConfigurationStore:
-    def __init__(self, database_url: str, encryption_key: str) -> None:
+    def __init__(self, database_url: str, encryption_key: str | ConfigurationCipher) -> None:
         self._database_url = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-        self._fernet = Fernet(encryption_key.encode())
+        self._cipher = configuration_cipher(encryption_key)
         self._pool: asyncpg.Pool | None = None
 
     async def start(self) -> None:
@@ -31,7 +31,7 @@ class PostgresUsenetConfigurationStore:
         if not row:
             return None
         return UsenetSettings.model_validate_json(
-            self._fernet.decrypt(bytes(row["encrypted_settings"]))
+            await self._cipher.decrypt(bytes(row["encrypted_settings"]), "usenet")
         )
 
     async def save(self, configuration: UsenetConfigurationInput) -> UsenetSettings:
@@ -52,7 +52,7 @@ class PostgresUsenetConfigurationStore:
         payload = settings.model_dump(mode="json")
         payload["provider_api_key"] = settings.provider_api_key.get_secret_value()
         payload["nzbget_password"] = settings.nzbget_password.get_secret_value()
-        encrypted = self._fernet.encrypt(json.dumps(payload).encode())
+        encrypted = await self._cipher.encrypt(json.dumps(payload).encode(), "usenet")
         await self._pool.execute(
             "INSERT INTO usenet_configuration(singleton, encrypted_settings) VALUES(TRUE, $1) "
             "ON CONFLICT(singleton) DO UPDATE SET encrypted_settings=EXCLUDED.encrypted_settings",
