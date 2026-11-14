@@ -17,6 +17,7 @@ beforeEach(() => {
     if (path === "/api/v1/auth/status") return Promise.resolve(response({ authentication_required: requireAuth }));
     if (path === "/api/v1/health") return Promise.resolve(response({ status: "ok" }));
     if (requireAuth && !new Headers(init?.headers).get("Authorization")?.includes("correct-token")) return Promise.resolve(response({}, 401));
+    if (path === "/api/v1/channels/telegram") return Promise.resolve(response({ configured: false, running: false, agent_name: null, last_error: null }));
     if (path === "/api/v1/channels/whatsapp") return Promise.resolve(response({ configured: true, running: true, agent_name: "primary", last_error: null }));
     if (path.endsWith("/profile")) { if (init?.method === "PUT") greeting = JSON.parse(String(init.body)).greeting; return Promise.resolve(response({ greeting })); }
     if (path.endsWith("/skills") && path.includes("/agents/")) {
@@ -42,6 +43,14 @@ describe("Artemis en español", () => {
     expect(screen.queryByText("Runs")).toBeNull(); expect(screen.queryByText("Approvals")).toBeNull();
     expect(screen.queryByRole("button", { name: "Webhooks" })).toBeNull();
     expect(await screen.findByText("WhatsApp en marcha")).toBeDefined();
+  });
+
+  it("shows Telegram in Channels before the bot is configured", async () => {
+    render(<App/>);
+    fireEvent.click(await screen.findByRole("button", { name: "Canales" }));
+    expect(await screen.findByRole("heading", { name: "Telegram" })).toBeDefined();
+    expect(await screen.findByText(/Configura TELEGRAM_BOT_TOKEN/)).toBeDefined();
+    expect(screen.getByRole("heading", { name: "WhatsApp" })).toBeDefined();
   });
 
   it("keeps translated skill connections and operations available", async () => {
