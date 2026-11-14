@@ -9,6 +9,7 @@ RUN useradd --system --uid 10001 artemis
 WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY app ./app
+RUN chmod -R a+rX /app/app
 USER artemis
 EXPOSE 8000
 CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
