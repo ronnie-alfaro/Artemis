@@ -85,3 +85,7 @@ Puede buscar, ejecutar comandos y modificar archivos del proyecto real con permi
 sin confirmación adicional, igual que Antigravity. Consulta [la instalación y los comandos](docs/codex.md).
 
 Google Antigravity: [uso, permisos e instalación](docs/antigravity.md).
+
+### Canal Telegram
+
+Puedes conectar un bot de Telegram con las habilidades existentes. Consulta la [configuración de Telegram](docs/telegram.md).

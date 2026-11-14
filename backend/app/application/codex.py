@@ -122,7 +122,7 @@ class CodexDeliveryWorker:
     async def run_once(self) -> None:
         for job in reversed(self.queue.recent(1000)):
             if (
-                job.channel != "whatsapp"
+                job.channel not in {"whatsapp", "telegram"}
                 or job.delivered
                 or job.status not in {"completed", "failed"}
             ):

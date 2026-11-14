@@ -25,8 +25,13 @@ class WhatsAppAgentRuntime:
         client: WhatsAppClient,
         state: WhatsAppStateStore,
         handle: HandleMessage,
+        *,
+        channel_name: str = "whatsapp",
     ) -> None:
         self._settings, self._client, self._state, self._handle = settings, client, state, handle
+        self._channel_name = channel_name
+        self._agent_key = (settings.agent_name if channel_name == "whatsapp"
+                           else f"{channel_name}:{settings.agent_name}")
         self._task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
         self._recipient_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -37,10 +42,10 @@ class WhatsAppAgentRuntime:
             return
         await self._state.start()
         # Agent search candidates are process-local; old menus cannot survive a restart.
-        await self._state.clear_reaction_menus(self._settings.agent_name)
+        await self._state.clear_reaction_menus(self._agent_key)
         self._stopping.clear()
         self._task = asyncio.create_task(
-            self._run(), name=f"whatsapp-poller-{self._settings.agent_name}"
+            self._run(), name=f"{self._channel_name}-poller-{self._agent_key}"
         )
 
     async def stop(self) -> None:
@@ -64,22 +69,25 @@ class WhatsAppAgentRuntime:
         )
 
     async def capabilities(self) -> list[str]:
-        return await self._state.capabilities_for(self._settings.agent_name)
+        return await self._state.capabilities_for(self._agent_key)
 
     async def set_capabilities(self, capabilities: list[str]) -> None:
-        await self._state.set_capabilities(self._settings.agent_name, capabilities)
+        await self._state.set_capabilities(self._agent_key, capabilities)
 
     async def greeting(self) -> str:
-        return await self._state.greeting_for(self._settings.agent_name)
+        greeting = await self._state.greeting_for(self._agent_key)
+        if self._channel_name == "telegram" and greeting == "Hola, soy tu asistente de WhatsApp.":
+            return "Hola, soy tu asistente de Telegram."
+        return greeting
 
     async def set_greeting(self, greeting: str) -> None:
-        await self._state.set_greeting(self._settings.agent_name, greeting)
+        await self._state.set_greeting(self._agent_key, greeting)
 
     async def notification_recipients(self) -> list[str]:
-        return await self._state.participants_for(self._settings.agent_name)
+        return await self._state.participants_for(self._agent_key)
 
     async def notification_recipient(self, preferred: str | None = None) -> str | None:
-        participants = await self._state.participants_for(self._settings.agent_name)
+        participants = await self._state.participants_for(self._agent_key)
         if preferred:
             return preferred if preferred in participants else None
         return participants[0] if len(participants) == 1 else None
@@ -87,7 +95,7 @@ class WhatsAppAgentRuntime:
     async def recipient_for_conversation(self, conversation_id: UUID) -> str | None:
         for recipient in await self.notification_recipients():
             if (
-                await self._state.conversation_for(self._settings.agent_name, recipient)
+                await self._state.conversation_for(self._agent_key, recipient)
                 == conversation_id
             ):
                 return recipient
@@ -95,7 +103,7 @@ class WhatsAppAgentRuntime:
 
     async def send_notification(self, recipient_id: str, content: str) -> None:
         conversation_id = await self._state.conversation_for(
-            self._settings.agent_name, recipient_id
+            self._agent_key, recipient_id
         )
         message = OutgoingMessage(
             conversation_id=conversation_id,
@@ -110,34 +118,34 @@ class WhatsAppAgentRuntime:
 
     async def run_once(self) -> None:
         await self._drain_pending()
-        offset = await self._state.get_offset(self._settings.agent_name)
+        offset = await self._state.get_offset(self._agent_key)
         batch = await self._client.updates(offset, self._settings.poll_timeout_seconds)
         if batch is None:
             return
         for inbound in batch.messages:
-            await self._state.enqueue(self._settings.agent_name, inbound)
+            await self._state.enqueue(self._agent_key, inbound)
         # Persist the provider cursor only after its events are safely in the inbox.
-        await self._state.set_offset(self._settings.agent_name, batch.next_offset)
+        await self._state.set_offset(self._agent_key, batch.next_offset)
         await self._drain_pending()
 
     async def _drain_pending(self) -> None:
-        for inbound in await self._state.pending(self._settings.agent_name):
+        for inbound in await self._state.pending(self._agent_key):
             await self._process(inbound)
 
     async def _process(self, inbound: WhatsAppInbound) -> None:
-        if await self._state.completed(self._settings.agent_name, inbound.id):
+        if await self._state.completed(self._agent_key, inbound.id):
             return
         content = inbound.content
         if inbound.type.value == "reaction":
-            option = await self._state.claim_reaction(self._settings.agent_name, inbound)
+            option = await self._state.claim_reaction(self._agent_key, inbound)
             if option is None:
-                await self._state.mark_completed(self._settings.agent_name, inbound)
+                await self._state.mark_completed(self._agent_key, inbound)
                 return
             content = option.command
         else:
-            await self._state.clear_reaction_menus(self._settings.agent_name, inbound.sender_id)
+            await self._state.clear_reaction_menus(self._agent_key, inbound.sender_id)
         conversation_id = await self._state.conversation_for(
-            self._settings.agent_name, inbound.sender_id
+            self._agent_key, inbound.sender_id
         )
         capabilities = await self.capabilities()
         greeting = await self.greeting()
@@ -145,10 +153,10 @@ class WhatsAppAgentRuntime:
         await self._client.mark_read(inbound.id, typing=True)
         response = await self._handle(
             IncomingMessage(
-                id=uuid5(NAMESPACE_URL, f"whatsapp:{self._settings.agent_name}:{inbound.id}"),
+                id=uuid5(NAMESPACE_URL, f"{self._channel_name}:{self._agent_key}:{inbound.id}"),
                 conversation_id=conversation_id,
                 channel=Channel(
-                    name="whatsapp",
+                    name=self._channel_name,
                     version="agent/v1",
                     allowed_capabilities=capabilities,
                     assistant_greeting=greeting,
@@ -157,6 +165,8 @@ class WhatsAppAgentRuntime:
             )
         )
         outgoing = response.message
+        if self._channel_name == "telegram":
+            outgoing = outgoing.model_copy(update={"reaction_options": []})
         menu = ""
         content = outgoing.content
         if outgoing.reaction_options:
@@ -198,9 +208,9 @@ class WhatsAppAgentRuntime:
                 )
             if outgoing.reaction_options:
                 await self._state.save_reaction_menu(
-                    self._settings.agent_name, inbound.sender_id, sent_id, outgoing.reaction_options
+                    self._agent_key, inbound.sender_id, sent_id, outgoing.reaction_options
                 )
-        await self._state.mark_completed(self._settings.agent_name, inbound)
+        await self._state.mark_completed(self._agent_key, inbound)
 
     async def _run(self) -> None:
         delay = 1.0
@@ -212,7 +222,9 @@ class WhatsAppAgentRuntime:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                self._last_error = "La conexión con WhatsApp falló; se reintentará automáticamente"
-                logger.exception("WhatsApp polling failed for configured agent")
+                self._last_error = (
+                    f"La conexión con {self._channel_name} falló; se reintentará automáticamente"
+                )
+                logger.error("Channel polling failed for configured agent: %s", self._channel_name)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 30.0)

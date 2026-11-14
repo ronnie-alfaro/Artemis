@@ -86,6 +86,7 @@ from app.infrastructure.seerr_http import HttpSeerrClient
 from app.infrastructure.seerr_unconfigured import UnconfiguredSeerrClient
 from app.infrastructure.skill_presentations import PostgresSkillPresentationStore
 from app.infrastructure.skill_sessions import PostgresSkillSessionStore
+from app.infrastructure.telegram_http import HttpTelegramClient
 from app.infrastructure.usenet_config import PostgresUsenetConfigurationStore
 from app.infrastructure.usenet_http import HttpUsenetClient
 from app.infrastructure.webhook_events import PostgresWebhookEventStore
@@ -229,6 +230,22 @@ def configured_whatsapp_runtime(orchestrator: Orchestrator) -> WhatsAppAgentRunt
     return WhatsAppAgentRuntime(settings, client, state, orchestrator.handle)
 
 
+def configured_telegram_runtime(orchestrator: Orchestrator) -> WhatsAppAgentRuntime | None:
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return None
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is required when TELEGRAM_BOT_TOKEN is configured")
+    allowed = {int(value.strip()) for value in
+               os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",") if value.strip()}
+    settings = WhatsAppSettings(agent_name=token.split(":", 1)[0], token=SecretStr(token))
+    return WhatsAppAgentRuntime(
+        settings, HttpTelegramClient(settings, allowed), PostgresWhatsAppStateStore(database_url),
+        orchestrator.handle, channel_name="telegram",
+    )
+
+
 def create_app() -> FastAPI:
     orchestrator = build_orchestrator(configured_seerr_client(), configured_karakeep_client())
 
@@ -309,6 +326,20 @@ def create_app() -> FastAPI:
         app.state.whatsapp = runtime
         if runtime:
             await runtime.start()
+        telegram = configured_telegram_runtime(orchestrator)
+        app.state.telegram = telegram
+        if telegram:
+            await telegram.start()
+        telegram_deliveries = []
+        if telegram:
+            for queue, worker_type in (
+                (orchestrator.codex_queue, CodexDeliveryWorker),  # type: ignore[attr-defined]
+                (orchestrator.antigravity_queue, AntigravityDeliveryWorker),  # type: ignore[attr-defined]
+            ):
+                if queue.directory:
+                    worker = worker_type(queue, telegram)
+                    await worker.start()
+                    telegram_deliveries.append(worker)
         notifier = None
         if runtime and webhook_store:
             notifier = WebhookNotificationWorker(
@@ -343,6 +374,10 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
+            for worker in telegram_deliveries:
+                await worker.stop()
+            if telegram:
+                await telegram.stop()
             if antigravity_delivery:
                 await antigravity_delivery.stop()
             if codex_delivery:
@@ -456,6 +491,17 @@ def create_app() -> FastAPI:
         runtime: WhatsAppAgentRuntime | None = app.state.whatsapp
         if not runtime or runtime.status().agent_name != agent_name:
             raise HTTPException(status_code=404, detail="El agente de WhatsApp no está configurado")
+        return runtime
+
+    @app.get("/api/v1/channels/telegram", response_model=WhatsAppChannelStatus)
+    async def telegram_status() -> WhatsAppChannelStatus:
+        runtime: WhatsAppAgentRuntime | None = app.state.telegram
+        return runtime.status() if runtime else WhatsAppChannelStatus(configured=False)
+
+    def configured_telegram_runtime_for(agent_name: str) -> WhatsAppAgentRuntime:
+        runtime: WhatsAppAgentRuntime | None = app.state.telegram
+        if not runtime or runtime.status().agent_name != agent_name:
+            raise HTTPException(status_code=404, detail="El bot de Telegram no está configurado")
         return runtime
 
     def available_capabilities() -> list[str]:
@@ -655,6 +701,49 @@ def create_app() -> FastAPI:
         agent_name: str, payload: WhatsAppAgentProfileUpdate
     ) -> WhatsAppAgentProfile:
         runtime = configured_whatsapp_runtime_for(agent_name)
+        await runtime.set_greeting(payload.greeting.strip())
+        return WhatsAppAgentProfile(agent_name=agent_name, greeting=await runtime.greeting())
+
+    @app.get("/api/v1/agents/telegram/{agent_name}/skills", response_model=WhatsAppSkillBinding)
+    async def telegram_skills(agent_name: str) -> WhatsAppSkillBinding:
+        runtime = configured_telegram_runtime_for(agent_name)
+        return WhatsAppSkillBinding(
+            agent_name=agent_name,
+            capabilities=await runtime.capabilities(),
+            available_capabilities=whatsapp_assignable_capabilities(),
+        )
+
+    @app.put("/api/v1/agents/telegram/{agent_name}/skills", response_model=WhatsAppSkillBinding)
+    async def update_telegram_skills(
+        agent_name: str, payload: WhatsAppSkillSelection
+    ) -> WhatsAppSkillBinding:
+        runtime = configured_telegram_runtime_for(agent_name)
+        available = whatsapp_assignable_capabilities()
+        # The status capability is mandatory and returned by GET. Accept it on
+        # round trips from clients, but persist only optional skill selections.
+        optional_capabilities = set(payload.capabilities) - {"assistant.status"}
+        unknown = sorted(optional_capabilities - set(available))
+        if unknown:
+            raise HTTPException(
+                status_code=422, detail=f"Habilidades desconocidas o inactivas: {unknown}"
+            )
+        await runtime.set_capabilities(sorted(optional_capabilities))
+        return WhatsAppSkillBinding(
+            agent_name=agent_name,
+            capabilities=await runtime.capabilities(),
+            available_capabilities=available,
+        )
+
+    @app.get("/api/v1/agents/telegram/{agent_name}/profile", response_model=WhatsAppAgentProfile)
+    async def telegram_profile(agent_name: str) -> WhatsAppAgentProfile:
+        runtime = configured_telegram_runtime_for(agent_name)
+        return WhatsAppAgentProfile(agent_name=agent_name, greeting=await runtime.greeting())
+
+    @app.put("/api/v1/agents/telegram/{agent_name}/profile", response_model=WhatsAppAgentProfile)
+    async def update_telegram_profile(
+        agent_name: str, payload: WhatsAppAgentProfileUpdate
+    ) -> WhatsAppAgentProfile:
+        runtime = configured_telegram_runtime_for(agent_name)
         await runtime.set_greeting(payload.greeting.strip())
         return WhatsAppAgentProfile(agent_name=agent_name, greeting=await runtime.greeting())
 
