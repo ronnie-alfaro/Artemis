@@ -77,3 +77,44 @@ def test_whatsapp_skill_save_accepts_mandatory_status_on_round_trip() -> None:
     assert loaded.status_code == 200
     assert runtime.saved == ["karakeep.bookmarks"]
     assert loaded.json()["capabilities"] == ["assistant.status", "karakeep.bookmarks"]
+
+
+def test_each_bot_has_a_persona_and_old_profile_updates_preserve_it():
+    class Runtime:
+        def __init__(self):
+            self.personality = "Cercano y breve"
+            self.welcome = "Hola"
+
+        def status(self):
+            return WhatsAppChannelStatus(configured=True, agent_name="primary", running=True)
+
+        async def persona(self):
+            return self.personality
+
+        async def greeting(self):
+            return self.welcome
+
+        async def set_persona(self, value):
+            self.personality = value
+
+        async def set_greeting(self, value):
+            self.welcome = value
+
+    app = create_app()
+    with TestClient(app) as client:
+        whatsapp, telegram = Runtime(), Runtime()
+        app.state.whatsapp, app.state.telegram = whatsapp, telegram
+        response = client.put(
+            "/api/v1/agents/telegram/primary/profile",
+            json={"persona": "Hablas como pirata"},
+        )
+        assert response.status_code == 200
+        assert response.json()["persona"] == "Hablas como pirata"
+        assert whatsapp.personality == "Cercano y breve"
+        client.put("/api/v1/agents/telegram/primary/profile", json={"greeting": "Bienvenido"})
+        assert telegram.personality == "Hablas como pirata"
+        invalid = client.put(
+            "/api/v1/agents/telegram/primary/profile", json={"greeting": "Cambio", "persona": "   "}
+        )
+        assert invalid.status_code == 422
+        assert telegram.welcome == "Bienvenido"

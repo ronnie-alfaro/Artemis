@@ -10,6 +10,7 @@ import signal
 from pathlib import Path
 from uuid import UUID
 
+import antigravity_conversation as conversation
 import codex_worker as worker
 
 STATE = Path(
@@ -35,6 +36,17 @@ def command() -> list[str]:
 
 
 async def execute(path: Path, job: dict) -> None:
+    natural = job.get("mode") == "assistant"
+    if natural:
+        for previous in worker.QUEUE.glob("*.json"):
+            other = json.loads(previous.read_text())
+            if (
+                other.get("conversation_id") == job["conversation_id"]
+                and other.get("channel") == job["channel"]
+                and other.get("created_at", 0) < job["created_at"]
+                and other.get("status") not in {"completed", "failed"}
+            ):
+                return
     job_id = str(UUID(job["id"]))
     logs = STATE / "workspaces"
     logs.mkdir(parents=True, exist_ok=True)
@@ -54,25 +66,37 @@ async def execute(path: Path, job: dict) -> None:
             ensure_ascii=False,
         )
     )
+    if natural:
+        prompt = conversation.prompt(job, worker.history(job))
+    workspace = STATE / "conversations" if natural else SOURCE
+    if natural:
+        workspace.mkdir(parents=True, exist_ok=True)
     process = None
     try:
         with (logs / f"{job_id}.stderr").open("wb") as log:
             process = await asyncio.create_subprocess_exec(
-                *command(),
+                *(conversation.command(CLI) if natural else command()),
                 "--print=" + prompt,
-                cwd=SOURCE,
+                cwd=workspace,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=log,
                 start_new_session=True,
             )
             output, _ = await asyncio.wait_for(
-                process.communicate(), TIMEOUT
+                process.communicate(), min(TIMEOUT, 120) if natural else TIMEOUT,
             )
         answer = output.decode(errors="replace").strip()
         if process.returncode != 0 or not answer:
             raise RuntimeError("agy failed")
-        job.update(status="completed", answer=answer[:24000])
+        if natural:
+            selected = conversation.decision(answer, job)
+            if selected["capability"]:
+                job.update(status="waiting_skill", decision=selected)
+            else:
+                job.update(status="completed", answer=selected["reply"][:24000])
+        else:
+            job.update(status="completed", answer=answer[:24000])
     except TimeoutError:
         job.update(
             status="failed",
@@ -84,16 +108,30 @@ async def execute(path: Path, job: dict) -> None:
             answer="Antigravity se interrumpió. Revisa los cambios antes de repetir la tarea.",
         )
         raise
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
         job.update(
             status="failed",
             answer="Antigravity no pudo completar la tarea. Revisa su servicio y los posibles cambios parciales.",
         )
     finally:
+        if natural and job.get("status") == "failed":
+            job["answer"] = (
+                "No pude completar tu petición con AGY. Inténtalo de nuevo en un momento."
+            )
         if process and process.returncode is None:
             os.killpg(process.pid, signal.SIGKILL)
             await process.wait()
         worker.write_json(path, job)
+
+
+async def conversation_heartbeat() -> None:
+    while True:
+        (worker.QUEUE / "heartbeat").touch()
+        (worker.QUEUE / "conversation-v1").touch()
+        await asyncio.sleep(5)
+
+
+worker.heartbeat = conversation_heartbeat
 
 
 original_write_json = worker.write_json

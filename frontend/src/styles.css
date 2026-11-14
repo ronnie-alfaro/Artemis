@@ -34,3 +34,5 @@
 .channel-configuration input:not([type=checkbox]){width:100%;min-width:0}
 .channel-configuration label:has(input[type=checkbox]){display:flex;align-items:center}
 .channel-configuration .primary{justify-self:start}
+
+.persona-editor{display:flex;flex-direction:column;gap:10px}.persona-editor textarea{min-height:180px}.persona-editor .primary{align-self:flex-end}

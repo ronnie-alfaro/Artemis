@@ -33,6 +33,7 @@ from app.application.antigravity import AntigravityDeliveryWorker, AntigravityQu
 from app.application.approvals import ApprovalStore
 from app.application.channels import ChannelController
 from app.application.codex import CodexDeliveryWorker, CodexQueue
+from app.application.conversation import ConversationAgent, ConversationSkillWorker
 from app.application.notifications import NotificationService
 from app.application.orchestrator import (
     CapabilityPlanner,
@@ -160,6 +161,7 @@ def build_orchestrator(
         }
     )
     agents.register(status_agent)
+    agents.register(ConversationAgent(antigravity_queue, agents, approvals))
 
     def reset_conversation(conversation_id: UUID) -> None:
         seerr_agent.reset_conversation(conversation_id)
@@ -361,8 +363,15 @@ def create_app() -> FastAPI:
             validate=validate_telegram,
         )
         app.state.whatsapp, app.state.telegram = runtime, telegram
+        conversation_worker = ConversationSkillWorker(
+            orchestrator.antigravity_queue,  # type: ignore[attr-defined]
+            lambda channel: {"whatsapp": runtime, "telegram": telegram}.get(channel),
+            orchestrator.handle,
+            orchestrator.approvals,  # type: ignore[attr-defined]
+        )
         await runtime.start()
         await telegram.start()
+        await conversation_worker.start()
         telegram_deliveries = []
         for queue, worker_type in (
             (orchestrator.codex_queue, CodexDeliveryWorker),  # type: ignore[attr-defined]
@@ -416,6 +425,7 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
+            await conversation_worker.stop()
             for worker in telegram_deliveries:
                 await worker.stop()
             if telegram:
@@ -782,15 +792,28 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/agents/whatsapp/{agent_name}/profile", response_model=WhatsAppAgentProfile)
     async def whatsapp_profile(agent_name: str) -> WhatsAppAgentProfile:
         runtime = configured_whatsapp_runtime_for(agent_name)
-        return WhatsAppAgentProfile(agent_name=agent_name, greeting=await runtime.greeting())
+        return WhatsAppAgentProfile(
+            agent_name=agent_name, greeting=await runtime.greeting(),
+            persona=await runtime.persona(),
+        )
 
     @app.put("/api/v1/agents/whatsapp/{agent_name}/profile", response_model=WhatsAppAgentProfile)
     async def update_whatsapp_profile(
         agent_name: str, payload: WhatsAppAgentProfileUpdate
     ) -> WhatsAppAgentProfile:
         runtime = configured_whatsapp_runtime_for(agent_name)
-        await runtime.set_greeting(payload.greeting.strip())
-        return WhatsAppAgentProfile(agent_name=agent_name, greeting=await runtime.greeting())
+        if payload.persona is not None and not payload.persona.strip():
+            raise HTTPException(422, "La PERSONA no puede estar vacía.")
+        if payload.greeting is not None:
+            if not payload.greeting.strip():
+                raise HTTPException(422, "El saludo no puede estar vacío.")
+            await runtime.set_greeting(payload.greeting.strip())
+        if payload.persona is not None:
+            await runtime.set_persona(payload.persona.strip())
+        return WhatsAppAgentProfile(
+            agent_name=agent_name, greeting=await runtime.greeting(),
+            persona=await runtime.persona(),
+        )
 
     @app.get("/api/v1/agents/telegram/{agent_name}/skills", response_model=WhatsAppSkillBinding)
     async def telegram_skills(agent_name: str) -> WhatsAppSkillBinding:
@@ -825,15 +848,28 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/agents/telegram/{agent_name}/profile", response_model=WhatsAppAgentProfile)
     async def telegram_profile(agent_name: str) -> WhatsAppAgentProfile:
         runtime = configured_telegram_runtime_for(agent_name)
-        return WhatsAppAgentProfile(agent_name=agent_name, greeting=await runtime.greeting())
+        return WhatsAppAgentProfile(
+            agent_name=agent_name, greeting=await runtime.greeting(),
+            persona=await runtime.persona(),
+        )
 
     @app.put("/api/v1/agents/telegram/{agent_name}/profile", response_model=WhatsAppAgentProfile)
     async def update_telegram_profile(
         agent_name: str, payload: WhatsAppAgentProfileUpdate
     ) -> WhatsAppAgentProfile:
         runtime = configured_telegram_runtime_for(agent_name)
-        await runtime.set_greeting(payload.greeting.strip())
-        return WhatsAppAgentProfile(agent_name=agent_name, greeting=await runtime.greeting())
+        if payload.persona is not None and not payload.persona.strip():
+            raise HTTPException(422, "La PERSONA no puede estar vacía.")
+        if payload.greeting is not None:
+            if not payload.greeting.strip():
+                raise HTTPException(422, "El saludo no puede estar vacío.")
+            await runtime.set_greeting(payload.greeting.strip())
+        if payload.persona is not None:
+            await runtime.set_persona(payload.persona.strip())
+        return WhatsAppAgentProfile(
+            agent_name=agent_name, greeting=await runtime.greeting(),
+            persona=await runtime.persona(),
+        )
 
     @app.post("/api/v1/chat", response_model=ChatResponse)
     async def chat(payload: ChatRequest) -> ChatResponse:

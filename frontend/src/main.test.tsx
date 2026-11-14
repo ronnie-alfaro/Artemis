@@ -6,12 +6,13 @@ import { App } from "./main";
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 let saved: string[];
 let greeting: string;
+let persona: string;
 let requireAuth: boolean;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   sessionStorage.clear(); localStorage.clear(); window.history.replaceState(null, "", "/");
-  saved = ["assistant.status"]; greeting = "Hola, soy Artemis."; requireAuth = false;
+  saved = ["assistant.status"]; greeting = "Hola, soy Artemis."; persona = "Eres Artemis, cercano y claro."; requireAuth = false;
   fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path === "/api/v1/auth/status") return Promise.resolve(response({ authentication_required: requireAuth }));
@@ -19,7 +20,7 @@ beforeEach(() => {
     if (requireAuth && !new Headers(init?.headers).get("Authorization")?.includes("correct-token")) return Promise.resolve(response({}, 401));
     if (path === "/api/v1/channels/telegram") return Promise.resolve(response({ configured: false, running: false, agent_name: null, last_error: null }));
     if (path === "/api/v1/channels/whatsapp") return Promise.resolve(response({ configured: true, running: true, agent_name: "primary", last_error: null }));
-    if (path.endsWith("/profile")) { if (init?.method === "PUT") greeting = JSON.parse(String(init.body)).greeting; return Promise.resolve(response({ greeting })); }
+    if (path.endsWith("/profile")) { if (init?.method === "PUT") { const body = JSON.parse(String(init.body)); if (body.greeting !== undefined) greeting = body.greeting; if (body.persona !== undefined) persona = body.persona; } return Promise.resolve(response({ greeting, persona })); }
     if (path.endsWith("/skills") && path.includes("/agents/")) {
       if (init?.method === "PUT") saved = ["assistant.status", ...JSON.parse(String(init.body)).capabilities];
       return Promise.resolve(response({ capabilities: saved, available_capabilities: ["seerr.media", "karakeep.bookmarks", "usenet.downloads"] }));
@@ -88,6 +89,17 @@ describe("Artemis en español", () => {
     expect(greeting).toBe("Hola desde mi universo.");
     fireEvent.click(screen.getByRole("button", { name: "Buscar y guardar enlaces · Karakeep" }));
     expect(screen.getByRole("button", { name: "Guardar habilidades asignadas" })).toHaveProperty("disabled", false);
+  });
+
+  it("saves the bot PERSONA for natural conversation", async () => {
+    render(<App/>);
+    fireEvent.click(await screen.findByRole("button", { name: "Agentes" }));
+    const field = await screen.findByLabelText("PERSONA de WhatsApp");
+    fireEvent.change(field, { target: { value: "Hablas como un pirata amable." } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar PERSONA" }));
+    await screen.findByText("PERSONA guardada. Se aplicará al próximo mensaje.");
+    expect(persona).toBe("Hablas como un pirata amable.");
+    expect(screen.queryByText(/Usa «utiliza HABILIDAD»/)).toBeNull();
   });
 
   it("opens reminders directly from the command palette", async () => {

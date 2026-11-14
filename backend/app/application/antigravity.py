@@ -20,8 +20,15 @@ class AntigravityJob(BaseModel):
     conversation_id: UUID
     channel: str
     prompt: str = Field(min_length=1, max_length=20000)
-    mode: Literal["chat", "tool"] = "chat"
-    status: Literal["queued", "running", "completed", "failed"] = "queued"
+    mode: Literal["chat", "tool", "assistant"] = "chat"
+    status: Literal["queued", "running", "waiting_skill", "completed", "failed"] = "queued"
+    persona: str = Field(default="", max_length=8000)
+    greeting: str = Field(default="", max_length=1024)
+    agent_name: str | None = None
+    skills: list[dict[str, str]] = Field(default_factory=list)
+    observations: list[dict[str, str]] = Field(default_factory=list)
+    decision: dict[str, str] = Field(default_factory=dict)
+    approval_ids: list[str] = Field(default_factory=list)
     created_at: float
     answer: str = ""
     has_patch: bool = False
@@ -38,6 +45,15 @@ class AntigravityQueue:
             return False
         try:
             return time.time() - (self.directory / "heartbeat").stat().st_mtime < 45
+        except OSError:
+            return False
+
+    @property
+    def conversation_available(self) -> bool:
+        if not self.available or self.directory is None:
+            return False
+        try:
+            return time.time() - (self.directory / "conversation-v1").stat().st_mtime < 45
         except OSError:
             return False
 
@@ -74,7 +90,13 @@ class AntigravityQueue:
         conversation_id: UUID,
         channel: str,
         prompt: str,
-        mode: Literal["chat", "tool"],
+        mode: Literal["chat", "tool", "assistant"],
+        *,
+        persona: str = "",
+        agent_name: str | None = None,
+        skills: list[dict[str, str]] | None = None,
+        approval_ids: list[str] | None = None,
+        greeting: str = "",
     ) -> AntigravityJob:
         job_id = uuid5(
             NAMESPACE_URL, f"artemis-antigravity:{channel}:{conversation_id}:{message_id}"
@@ -82,9 +104,13 @@ class AntigravityQueue:
         previous = self.load(job_id)
         if previous:
             return previous
+        if mode == "assistant" and not self.conversation_available:
+            raise ValueError("El trabajador AGY necesita la versión de conversación natural.")
         if not self.available:
             raise ValueError("Antigravity no está conectado. Revisa su servicio en Habilidades.")
-        pending = [job for job in self.recent(1000) if job.status in {"queued", "running"}]
+        pending = [
+            job for job in self.recent(1000) if job.status in {"queued", "running", "waiting_skill"}
+        ]
         if len(pending) >= 10:
             raise ValueError("Antigravity tiene diez peticiones pendientes. Espera un momento.")
         job = AntigravityJob(
@@ -93,6 +119,11 @@ class AntigravityQueue:
             channel=channel,
             prompt=prompt,
             mode=mode,
+            persona=persona,
+            agent_name=agent_name,
+            skills=skills or [],
+            approval_ids=approval_ids or [],
+            greeting=greeting,
             created_at=time.time(),
         )
         self.save(job)
@@ -136,7 +167,11 @@ class AntigravityDeliveryWorker:
             # Persist progress per chunk, so a later chunk failing does not resend earlier ones.
             progress = self.queue.path(job.id, ".delivery")
             sent = int(progress.read_text()) if progress.exists() else 0
-            text = f"*Antigravity* · `{str(job.id)[:8]}`\n\n{job.answer}"
+            text = (
+                job.answer
+                if job.mode == "assistant"
+                else f"*Antigravity* · `{str(job.id)[:8]}`\n\n{job.answer}"
+            )
             if job.has_patch:
                 text += "\n\nParche disponible en Habilidades → Antigravity."
             chunks = whatsapp_chunks(text, 3400)

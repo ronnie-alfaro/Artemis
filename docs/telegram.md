@@ -7,7 +7,7 @@ WhatsApp y Telegram mantienen conversaciones, cursores y asignaciones independie
 2. Puedes usar **Canales → Conexión de Telegram** si ya está habilitado el almacenamiento cifrado ([guía KMS](aws-kms.md)); guarda y aplica sin reiniciar Docker. Como alternativa inicial, configura `TELEGRAM_BOT_TOKEN` con su token y `TELEGRAM_ALLOWED_USER_IDS` con los identificadores numéricos de los usuarios autorizados, separados por comas. No uses nombres de usuario. La lista es obligatoria; solo se aceptan chats privados de esos usuarios.
 3. Configura `DATABASE_URL` (Docker Compose ya lo proporciona).
 4. Tras reiniciar el servicio con esta configuración, abre **Agentes → Telegram**, asigna las habilidades y guarda. Puedes personalizar el saludo.
-5. Escribe `/start` al bot. Usa «utiliza HABILIDAD», «ayuda» y «salir» como en WhatsApp. `/help` equivale a «ayuda».
+5. Escribe `/start` al bot y conversa naturalmente. AGY utiliza las habilidades asignadas sin menús. Define su [PERSONA](conversation.md) desde Agentes. `/help` equivale a pedir ayuda.
 
 Se utiliza `getUpdates` mediante long polling: no se necesita una URL pública. El bot debe estar libre de webhooks y debe tener un único consumidor activo. Si ya tiene un webhook, retíralo mediante `deleteWebhook` antes de iniciar este canal. Véase la [Bot API oficial](https://core.telegram.org/bots/api#getupdates).
 

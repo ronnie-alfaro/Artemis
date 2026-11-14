@@ -93,3 +93,7 @@ Puedes conectar un bot de Telegram con las habilidades existentes. Consulta la [
 ### Configuración cifrada con AWS KMS
 
 Consulta [AWS KMS y recarga de canales](docs/aws-kms.md) para proteger los secretos guardados en PostgreSQL y administrar WhatsApp y Telegram sin reiniciar Docker.
+
+### Bots con conversación natural
+
+WhatsApp y Telegram conversan con AGY por defecto y usan sus habilidades asignadas sin menús. Configura la personalidad de cada bot en Agentes → PERSONA. Consulta [conversación natural](docs/conversation.md).

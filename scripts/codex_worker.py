@@ -37,7 +37,7 @@ def history(job: dict) -> list[dict]:
         ):
             previous.append(value)
     return [
-        {"usuario": item["prompt"], "codex": item["answer"][:6000]}
+        {"usuario": item["prompt"], "asistente": item["answer"][:6000]}
         for item in sorted(previous, key=lambda item: item["created_at"])[-6:]
     ]
 

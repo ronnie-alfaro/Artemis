@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 import asyncpg
 
 from app.domain.models import ReactionOption
-from app.domain.whatsapp import DEFAULT_WHATSAPP_GREETING, WhatsAppInbound
+from app.domain.whatsapp import DEFAULT_PERSONA, DEFAULT_WHATSAPP_GREETING, WhatsAppInbound
 
 
 class PostgresWhatsAppStateStore:
@@ -59,6 +59,11 @@ class PostgresWhatsAppStateStore:
                     completed_at TIMESTAMPTZ,
                     received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     PRIMARY KEY (agent_name, message_id)
+                );
+                CREATE TABLE IF NOT EXISTS whatsapp_agent_personas (
+                    agent_name TEXT PRIMARY KEY,
+                    persona TEXT NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 );
                 CREATE TABLE IF NOT EXISTS whatsapp_agent_profiles (
                     agent_name TEXT PRIMARY KEY,
@@ -184,6 +189,19 @@ class PostgresWhatsAppStateStore:
                     "INSERT INTO whatsapp_skill_bindings(agent_name, capability) VALUES ($1, $2)",
                     [(agent_name, capability) for capability in unique],
                 )
+
+    async def persona_for(self, agent_name: str) -> str:
+        value = await self._connection_pool.fetchval(
+            "SELECT persona FROM whatsapp_agent_personas WHERE agent_name=$1", agent_name,
+        )
+        return str(value) if value else DEFAULT_PERSONA
+
+    async def set_persona(self, agent_name: str, persona: str) -> None:
+        await self._connection_pool.execute(
+            "INSERT INTO whatsapp_agent_personas(agent_name, persona) VALUES($1,$2) "
+            "ON CONFLICT(agent_name) DO UPDATE SET persona=EXCLUDED.persona, updated_at=now()",
+            agent_name, persona,
+        )
 
     async def greeting_for(self, agent_name: str) -> str:
         greeting = await self._connection_pool.fetchval(

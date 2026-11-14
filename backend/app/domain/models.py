@@ -54,6 +54,9 @@ class Channel(BaseModel):
     version: str = "v1"
     allowed_capabilities: list[str] = Field(default_factory=list)
     assistant_greeting: str | None = Field(default=None, max_length=1024)
+    assistant_persona: str | None = Field(default=None, max_length=8000)
+    natural_conversation: bool = False
+    agent_name: str | None = None
 
 
 class Conversation(BaseModel):
@@ -78,6 +81,7 @@ class ReactionOption(BaseModel):
 
 
 class OutgoingMessage(BaseModel):
+    deferred: bool = False
     reaction_options: list[ReactionOption] = Field(default_factory=list, max_length=10)
     conversation_id: UUID
     content: str

@@ -46,7 +46,7 @@ async def test_worker_writes_source_and_returns_answer(tmp_path, monkeypatch):
         source.mkdir()
         cli = tmp_path / "agy"
         cli.write_text(
-            '#!/usr/bin/env python3\nimport pathlib, sys\nsys.stdin.read()\n'
+            "#!/usr/bin/env python3\nimport pathlib, sys\nsys.stdin.read()\n"
             'pathlib.Path("changed.txt").write_text("done")\n'
             'print("Tarea terminada")\n'
         )
@@ -71,6 +71,64 @@ async def test_worker_writes_source_and_returns_answer(tmp_path, monkeypatch):
         assert job["answer"] == "Tarea terminada"
         assert "--dangerously-skip-permissions" in module.command()
         assert "--continue" not in module.command()
+    finally:
+        sys.modules.pop("codex_worker", None)
+        if previous is not None:
+            sys.modules["codex_worker"] = previous
+
+
+@pytest.mark.asyncio
+async def test_conversation_worker_uses_persona_and_returns_structured_answer_without_host_tools(
+    tmp_path,
+    monkeypatch,
+):
+    scripts = Path(__file__).resolve().parents[2] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    spec = importlib.util.spec_from_file_location(
+        "agy_natural_test", scripts / "antigravity_worker.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.modules.pop("codex_worker", None)
+    try:
+        spec.loader.exec_module(module)
+        source = tmp_path / "source"
+        source.mkdir()
+        cli = tmp_path / "agy"
+        cli.write_text(
+            "#!/usr/bin/env python3\nimport json, pathlib, sys\n"
+            "args=sys.argv[1:]\n"
+            'assert "--dangerously-skip-permissions" not in args\n'
+            'assert "--sandbox" in args\n'
+            'settings=json.loads(args[args.index("--settings")+1])\n'
+            'assert settings["permissions"] == {"allow":[],"deny":["*"]}\n'
+            'prompt=next(v for v in args if v.startswith("--print="))\n'
+            'assert "pirata" in prompt and "habilidades_asignadas" in prompt\n'
+            'print(json.dumps({"status":"SUCCESS", "structured_output":'
+            '{"reply":"¡Arrr, hola!", "capability":"", "command":""}}))\n'
+        )
+        cli.chmod(0o755)
+        monkeypatch.setattr(module, "CLI", str(cli))
+        monkeypatch.setattr(module, "STATE", tmp_path)
+        monkeypatch.setattr(module, "SOURCE", source)
+        monkeypatch.setattr(module.worker, "QUEUE", tmp_path)
+        path = tmp_path / "job.json"
+        job = {
+            "id": str(uuid4()),
+            "conversation_id": str(uuid4()),
+            "channel": "telegram",
+            "created_at": 1,
+            "prompt": "Hola",
+            "status": "queued",
+            "mode": "assistant",
+            "persona": "Habla como pirata",
+            "skills": [],
+            "observations": [],
+        }
+        path.write_text(json.dumps(job))
+        await module.execute(path, job)
+        assert job["status"] == "completed"
+        assert job["answer"] == "¡Arrr, hola!"
+        assert list(source.iterdir()) == []
     finally:
         sys.modules.pop("codex_worker", None)
         if previous is not None:

@@ -86,6 +86,12 @@ class FakeState:
     async def set_capabilities(self, agent_name: str, capabilities: list[str]) -> None:
         pass
 
+    async def persona_for(self, agent_name: str) -> str:
+        return "Eres Artemis, cercano y claro."
+
+    async def set_persona(self, agent_name: str, persona: str) -> None:
+        pass
+
     async def greeting_for(self, agent_name: str) -> str:
         return "Hola, soy Artemis."
 

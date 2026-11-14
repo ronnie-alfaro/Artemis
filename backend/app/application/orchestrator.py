@@ -37,6 +37,7 @@ class CapabilityPlanner:
             "ayuda", "/ayuda", "help", "/help", "qué puedes hacer", "que puedes hacer",
         }
         help_requested = help_requested or help_target(message.content) is not None
+        help_requested = help_requested and not message.channel.natural_conversation
         capabilities = (
             ["assistant.status"] if help_requested
             else message.required_capabilities or [self._select(message)]
@@ -178,6 +179,8 @@ class Orchestrator:
         return ChatResponse(
             message=OutgoingMessage(
                 conversation_id=message.conversation_id, content=content, execution_id=execution_id,
+                deferred=bool(len(executions) == 1 and executions[0].result
+                              and executions[0].result.metadata.get("deferred") == "true"),
                 reaction_options=(executions[0].result.reaction_options
                                   if len(executions) == 1 and executions[0].result else []),
             ),

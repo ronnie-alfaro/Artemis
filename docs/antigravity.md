@@ -1,11 +1,12 @@
 # Antigravity desde Artemis
 
 La habilidad utiliza `/root/.local/bin/agy` y la sesión ya autenticada del servidor.
-Tiene cola, contexto reciente por conversación, estado y respuestas al WhatsApp de origen.
-Actívala en Agentes y escribe `utiliza antigravity`, seguido de la tarea. Usa `estado`,
-`resultado <ID>`, `ayuda` y `salir`. El panel Habilidades → Antigravity muestra sus resultados.
+Tiene cola, contexto reciente por conversación, estado y respuestas al chat de origen.
+Los bots utilizan AGY por defecto para [conversación natural y PERSONA](conversation.md), sin activar una habilidad. El modo conversacional deniega herramientas locales y usa las habilidades mediante la API.
 
-El trabajador ejecuta `agy --print --mode auto --dangerously-skip-permissions` sobre
+La habilidad opcional `antigravity.assistant` conserva las tareas avanzadas del proyecto. En clientes con enrutamiento manual puedes usar `utiliza antigravity`, `estado`, `resultado <ID>`, `ayuda` y `salir`. El panel Habilidades → Antigravity muestra sus resultados.
+
+Para las tareas avanzadas (no para la conversación por defecto), el trabajador ejecuta `agy --print --mode auto --dangerously-skip-permissions` sobre
 `/docker/artemis_platform`, con red, comandos y escritura en el sistema de archivos
 según los permisos de root. Los cambios son directos y no se generan parches.
 Las tareas solicitadas no requieren una segunda confirmación. Asigna esta habilidad

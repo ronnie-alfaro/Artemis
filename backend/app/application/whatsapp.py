@@ -76,6 +76,12 @@ class WhatsAppAgentRuntime:
     async def set_capabilities(self, capabilities: list[str]) -> None:
         await self._state.set_capabilities(self._agent_key, capabilities)
 
+    async def persona(self) -> str:
+        return await self._state.persona_for(self._agent_key)
+
+    async def set_persona(self, persona: str) -> None:
+        await self._state.set_persona(self._agent_key, persona)
+
     async def greeting(self) -> str:
         greeting = await self._state.greeting_for(self._agent_key)
         if self._channel_name == "telegram" and greeting == "Hola, soy tu asistente de WhatsApp.":
@@ -168,11 +174,17 @@ class WhatsAppAgentRuntime:
                     version="agent/v1",
                     allowed_capabilities=capabilities,
                     assistant_greeting=greeting,
+                    assistant_persona=await self.persona(),
+                    natural_conversation=True,
+                    agent_name=self._settings.agent_name,
                 ),
                 content=content,
             )
         )
         outgoing = response.message
+        if outgoing.deferred:
+            await self._state.mark_completed(self._agent_key, inbound)
+            return
         if self._channel_name == "telegram":
             outgoing = outgoing.model_copy(update={"reaction_options": []})
         menu = ""

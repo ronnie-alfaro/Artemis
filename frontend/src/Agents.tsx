@@ -18,6 +18,8 @@ function ChannelAgent({ apiFetch, channel }: Props & { channel: "whatsapp" | "te
   const [savingSkills, setSavingSkills] = useState(false);
   const [greeting, setGreeting] = useState("");
   const [greetingStatus, setGreetingStatus] = useState("");
+  const [persona, setPersona] = useState("");
+  const [personaStatus, setPersonaStatus] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -35,13 +37,16 @@ function ChannelAgent({ apiFetch, channel }: Props & { channel: "whatsapp" | "te
           const body = await binding.json() as { capabilities: string[]; available_capabilities: string[] };
           setBoundSkills(body.capabilities); setSavedSkills(body.capabilities); setAvailableSkills(body.available_capabilities);
         }
-        if (profile.ok && active) setGreeting((await profile.json() as { greeting: string }).greeting);
+        if (profile.ok && active) {
+          const body = await profile.json() as { greeting: string; persona?: string };
+          setGreeting(body.greeting); setPersona(body.persona ?? "");
+        }
       })
       .catch(() => { if (active) setWhatsApp(null); });
     return () => { active = false; };
   }, [apiFetch, channel]);
 
-  const rows = [["Asistente general", "Recibe tus mensajes y te ayuda a elegir una habilidad.", "Activo · sistema"]];
+  const rows = [["Asistente general", "Conversa con AGY y utiliza las habilidades asignadas según lo que necesites.", "Activo · sistema"]];
   if (whatsapp?.configured) {
     rows.push([
       `Agente de ${channelLabel} · ${whatsapp.agent_name ?? "sin nombre"}`,
@@ -77,14 +82,29 @@ function ChannelAgent({ apiFetch, channel }: Props & { channel: "whatsapp" | "te
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ greeting: greeting.trim() }),
     }).then(async response => { if (!response.ok) throw new Error("save"); setGreeting((await response.json() as { greeting: string }).greeting); setGreetingStatus("Mensaje de bienvenida guardado."); }).catch(() => setGreetingStatus("No se pudo guardar el mensaje de bienvenida."));
   };
+  const savePersona = async () => {
+    if (!whatsapp?.agent_name || !persona.trim()) return;
+    setPersonaStatus("");
+    try {
+      const response = await apiFetch(`/api/v1/agents/${channel}/${whatsapp.agent_name}/profile`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ persona: persona.trim() }),
+      });
+      if (!response.ok) throw new Error("save");
+      const body = await response.json() as { persona: string };
+      setPersona(body.persona); setPersonaStatus("PERSONA guardada. Se aplicará al próximo mensaje.");
+    } catch { setPersonaStatus("No se pudo guardar la PERSONA."); }
+  };
   const skillLabel = (skill: string) => ({
     "seerr.media": "Películas y series · Seerr",
     "github.repositories": "Repositorios y actividad · GitHub",
     "karakeep.bookmarks": "Buscar y guardar enlaces · Karakeep",
     "usenet.downloads": "Buscar y gestionar descargas · Usenet",
+    "antigravity.assistant": "Desarrollo y tareas del proyecto · AGY",
+    "codex.assistant": "Asistencia y herramientas · Codex",
   }[skill] ?? skill);
   const skillsChanged = boundSkills.length !== savedSkills.length || boundSkills.some(skill => !savedSkills.includes(skill));
-  return <><Header eyebrow="IDENTIDADES Y CONVERSACIONES" title={channelLabel}/><List rows={rows}/>{whatsapp?.configured && <section className="panel skill-binding"><div><label>MENSAJE DE BIENVENIDA</label><h3>Agente de {channelLabel} · {whatsapp.agent_name}</h3><p>En modo general se muestra este saludo y las habilidades asignadas. Usa «utiliza HABILIDAD» para activar una, «ayuda» para ver sus comandos y «salir» para volver al modo general.</p><textarea aria-label="Mensaje de bienvenida" value={greeting} onChange={event => setGreeting(event.target.value)} /><button className="primary" onClick={saveGreeting}>Guardar mensaje</button>{greetingStatus && <p role="status">{greetingStatus}</p>}</div><div className="binding-lanes"><div className="binding-lane" onDragOver={event => event.preventDefault()} onDrop={event => moveSkill(event, "available")}><strong>Habilidades disponibles</strong>{availableSkills.filter(skill => !boundSkills.includes(skill)).map(skill => <button draggable key={skill} onClick={() => toggleSkill(skill)} onDragStart={event => event.dataTransfer.setData("text/plain", skill)}>{skillLabel(skill)}</button>)}</div><div className="binding-lane agent-drop" onDragOver={event => event.preventDefault()} onDrop={event => moveSkill(event, "bound")}><strong>Asignadas al agente</strong><button disabled>Asistente general · respuesta del sistema</button>{boundSkills.filter(skill => skill !== "assistant.status").map(skill => <button draggable key={skill} onClick={() => toggleSkill(skill)} onDragStart={event => event.dataTransfer.setData("text/plain", skill)}>{skillLabel(skill)}</button>)}</div></div><div className="binding-save"><span role="status">{skillSaveStatus ?? (skillsChanged ? "Hay cambios sin guardar." : "Todas las asignaciones están guardadas.")}</span><button className="primary" onClick={saveSkills} disabled={!skillsChanged || savingSkills}>{savingSkills ? "Guardando…" : "Guardar habilidades asignadas"}</button></div></section>}<p className="hint">Arrastra una habilidad o púlsala para asignarla. Guarda los cambios para usarlos en {channelLabel}.</p></>;
+  return <><Header eyebrow="IDENTIDADES Y CONVERSACIONES" title={channelLabel}/><List rows={rows}/>{whatsapp?.configured && <section className="panel skill-binding"><div><label>MENSAJE DE BIENVENIDA</label><h3>Agente de {channelLabel} · {whatsapp.agent_name}</h3><p>AGY conversa por defecto y conoce las habilidades asignadas. Describe lo que necesitas con tus propias palabras.</p><textarea aria-label="Mensaje de bienvenida" value={greeting} onChange={event => setGreeting(event.target.value)} /><button className="primary" onClick={saveGreeting}>Guardar mensaje</button>{greetingStatus && <p role="status">{greetingStatus}</p>}</div><div className="persona-editor"><label htmlFor={`persona-${channel}`}>PERSONA</label><p>Define la personalidad, el tono y cómo quieres que actúe este bot. Las habilidades asignadas determinan lo que puede utilizar.</p><textarea id={`persona-${channel}`} aria-label={`PERSONA de ${channelLabel}`} maxLength={8000} value={persona} onChange={event => setPersona(event.target.value)} placeholder="Eres Artemis: cercano, ingenioso y claro. Respondes de forma breve y ayudas a usar la app…"/><button className="primary" disabled={!persona.trim()} onClick={() => void savePersona()}>Guardar PERSONA</button>{personaStatus && <p role="status">{personaStatus}</p>}</div><div className="binding-lanes"><div className="binding-lane" onDragOver={event => event.preventDefault()} onDrop={event => moveSkill(event, "available")}><strong>Habilidades disponibles</strong>{availableSkills.filter(skill => !boundSkills.includes(skill)).map(skill => <button draggable key={skill} onClick={() => toggleSkill(skill)} onDragStart={event => event.dataTransfer.setData("text/plain", skill)}>{skillLabel(skill)}</button>)}</div><div className="binding-lane agent-drop" onDragOver={event => event.preventDefault()} onDrop={event => moveSkill(event, "bound")}><strong>Asignadas al agente</strong><button disabled>Conversación natural · AGY</button>{boundSkills.filter(skill => skill !== "assistant.status").map(skill => <button draggable key={skill} onClick={() => toggleSkill(skill)} onDragStart={event => event.dataTransfer.setData("text/plain", skill)}>{skillLabel(skill)}</button>)}</div></div><div className="binding-save"><span role="status">{skillSaveStatus ?? (skillsChanged ? "Hay cambios sin guardar." : "Todas las asignaciones están guardadas.")}</span><button className="primary" onClick={saveSkills} disabled={!skillsChanged || savingSkills}>{savingSkills ? "Guardando…" : "Guardar habilidades asignadas"}</button></div></section>}<p className="hint">Arrastra una habilidad o púlsala para asignarla. Guarda los cambios para que el bot las use automáticamente en {channelLabel}.</p></>;
 }
 
 export function Agents(props: Props) {

@@ -9,7 +9,7 @@ if [ "$(getent group artemis-codex | cut -d: -f3)" != 10002 ]; then
 fi
 install -d -m 0770 -o root -g artemis-codex /var/lib/artemis-antigravity /var/lib/artemis-antigravity/queue
 install -d -m 0755 /usr/local/lib/artemis-antigravity
-install -m 0644 "$project_dir/scripts/antigravity_worker.py" "$project_dir/scripts/codex_worker.py" /usr/local/lib/artemis-antigravity/
+install -m 0644 "$project_dir/scripts/antigravity_worker.py" "$project_dir/scripts/antigravity_conversation.py" "$project_dir/scripts/codex_worker.py" /usr/local/lib/artemis-antigravity/
 install -m 0644 "$project_dir/scripts/artemis-antigravity.service" /etc/systemd/system/artemis-antigravity.service
 systemctl daemon-reload
 systemctl enable --now artemis-antigravity

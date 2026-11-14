@@ -12,6 +12,7 @@ def install_antigravity_routes(app: FastAPI, queue: AntigravityQueue) -> None:
         return {
             "configured": queue.available,
             "connected": queue.available,
+            "conversation_ready": queue.conversation_available,
             "last_test": "Antigravity conectado" if queue.available else "Antigravity sin conexión",
         }
 

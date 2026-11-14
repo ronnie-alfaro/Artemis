@@ -83,6 +83,10 @@ class SkillSessionRouter:
                 return self._status(message, "Codex no está asignado a esta conversación.")
             # This global command keeps the active skill and its pending operations intact.
             return message.model_copy(update={"required_capabilities": ["codex.assistant"]}), {}
+        if message.channel.natural_conversation and not message.required_capabilities:
+            return message.model_copy(update={
+                "required_capabilities": ["assistant.conversation"],
+            }), {}
         active = await self.store.get(message.channel.name, message.conversation_id)
         revoked = active is not None and active not in available
         if revoked:
