@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import time
 from threading import RLock
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -77,6 +78,14 @@ class MemoryManager:
                            metadatas=[{**metadata, "agent": agent, "source": "interaction"}])
         return key
 
+    @staticmethod
+    def _purge_expired_images(target: Any) -> None:
+        result = target.get(where={"kind": "image"}, include=["metadatas"])
+        expired = [key for key, meta in zip(result["ids"], result["metadatas"], strict=True)
+                   if float(meta.get("expires_at", "inf")) <= time.time()]
+        if expired:
+            target.delete(ids=expired)
+
     def search(self, collection: str, agent: str, text: str,
                limit: int = 5) -> list[dict[str, Any]]:
         self._validate(agent, text)
@@ -84,6 +93,8 @@ class MemoryManager:
             raise ValueError("El límite debe estar entre 1 y 50.")
         with self._lock:
             target = self._collection(collection)
+            if collection == "agent_memory":
+                self._purge_expired_images(target)
             if target.count() == 0:
                 return []
             result = target.query(
@@ -98,6 +109,21 @@ class MemoryManager:
                 )
             ]
 
+    def search_images(self, agent: str, scope: str, text: str) -> list[dict[str, Any]]:
+        with self._lock:
+            target = self._collection("agent_memory")
+            self._purge_expired_images(target)
+            if not target.count():
+                return []
+            result = target.query(
+                query_embeddings=self._embed(text), n_results=3,
+                where={"$and": [{"agent": agent}, {"scope": scope}, {"kind": "image"}]},
+                include=["metadatas", "distances"],
+            )
+            return [{"image_id": meta["image_id"], "distance": distance}
+                    for meta, distance in zip(result["metadatas"][0], result["distances"][0],
+                                              strict=True)]
+
     def browse(self, collection: str, agent: str | None = None,
                offset: int = 0, limit: int = 20) -> dict[str, Any]:
         """Read a bounded page for the authenticated administrative panel, without encoding."""
@@ -105,6 +131,8 @@ class MemoryManager:
             raise ValueError("Paginación no válida.")
         with self._lock:
             target = self._collection(collection)
+            if collection == "agent_memory":
+                self._purge_expired_images(target)
             filters = {"agent": agent} if agent else None
             # Count the selected scope without reading document or vector payloads.
             total = len(target.get(where=filters, include=[])["ids"]) if agent else target.count()

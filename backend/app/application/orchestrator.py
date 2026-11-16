@@ -174,6 +174,8 @@ class Orchestrator:
         if self.skill_sessions:
             message, context = await self.skill_sessions.route(message)
         plan = self._planner.plan(message)
+        if message.image_context:
+            context["image_context"] = message.image_context
         executions = await self._executor.execute(plan, message, context)
         plan.status = (
             ExecutionStatus.COMPLETED

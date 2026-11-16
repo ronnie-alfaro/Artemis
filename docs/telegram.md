@@ -20,3 +20,8 @@ API de administración (con la autenticación habitual):
 - `GET/PUT /api/v1/agents/telegram/{bot_id}/profile`: saludo.
 
 El estado devuelve `agent_name` con el identificador numérico del bot. No introduzcas el token en URLs de administración ni en el repositorio.
+
+## Imágenes
+
+Las fotos autorizadas pasan por [ingesta visual segura](image-ingestion.md):
+solo imagen describe y guarda durante 7 días; con caption manda la instrucción del usuario.

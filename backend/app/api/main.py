@@ -36,6 +36,7 @@ from app.application.approvals import ApprovalStore
 from app.application.channels import ChannelController
 from app.application.codex import CodexDeliveryWorker, CodexQueue
 from app.application.conversation import ConversationAgent, ConversationSkillWorker
+from app.application.image_ingestion import ImageIngestion
 from app.application.interaction_memory import InteractionMemory
 from app.application.minions import LocalExecutor, MinionDispatcher
 from app.application.native_tools import NativeTools
@@ -319,6 +320,11 @@ def create_app() -> FastAPI:
             channel_store = PostgresChannelConfigurationStore(database_url, encryption_key)
             await channel_store.start()
 
+        images = (ImageIngestion(orchestrator.interaction_memory.memory)
+                  if orchestrator.interaction_memory else None)
+        if images:
+            await images.start()
+
         def channel_factory(
             provider: Provider, connection: ChannelConnection,
         ) -> WhatsAppAgentRuntime:
@@ -329,7 +335,7 @@ def create_app() -> FastAPI:
                       if provider == "telegram" else HttpWhatsAppClient(settings))
             return WhatsAppAgentRuntime(
                 settings, client, PostgresWhatsAppStateStore(database_url), orchestrator.handle,
-                channel_name=provider,
+                channel_name=provider, images=images,
                 allowed_recipient_ids=(
                     frozenset(str(value) for value in connection.allowed_user_ids)
                     if provider == "telegram" else None
@@ -443,6 +449,8 @@ def create_app() -> FastAPI:
         finally:
             await app.state.minions.close()
             await conversation_worker.stop()
+            if images:
+                await images.stop()
             if orchestrator.interaction_memory:
                 await orchestrator.interaction_memory.stop()
             for worker in telegram_deliveries:

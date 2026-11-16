@@ -67,7 +67,8 @@ class ConversationAgent:
                 message.id,
                 message.conversation_id,
                 message.channel.name,
-                message.content,
+                (message.content + "\n\n" + message.image_context)
+                if message.image_context else message.content,
                 "assistant",
                 persona=message.channel.assistant_persona or DEFAULT_PERSONA,
                 agent_name=message.channel.agent_name,
@@ -172,6 +173,10 @@ class ConversationSkillWorker:
                         conversation_id=job.conversation_id,
                         channel=Channel(name=job.channel, allowed_capabilities=allowed),
                         content=command,
+                        image_context=("[Imagen temporal " + job.prompt.split(
+                            "[Imagen temporal ", 1)[1]
+                            if "[Imagen temporal " in job.prompt else ""),
+                        ephemeral_image_context="[Imagen temporal " in job.prompt,
                         required_capabilities=[capability],
                     )
                 )

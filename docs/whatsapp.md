@@ -31,7 +31,7 @@ The enabled runtime requires PostgreSQL through `DATABASE_URL`; it creates a sma
 - Bearer-token authentication over HTTPS only.
 - Single long poll per agent; provider `409` is treated as a retryable polling failure.
 - First poll omits `offset` and receives new traffic only. It does not silently replay the 30-day backlog.
-- API output is capped at 4,096 characters. Media is represented as typed inbound attachment metadata; download/upload flows remain a separate capability addition.
+- API output is capped at 4,096 characters. Image downloads and passive ingestion are implemented; see [image ingestion](image-ingestion.md). Other media remains typed metadata.
 - Failures use safe status-only messages and exponential retry backoff. A send with unknown outcome is never silently treated as delivered.
 
 The current documented limits are 12 requests/minute for messages, statuses, and each media method, and 15 polls/minute per agent. Production deployment needs gateway monitoring and rate-limit metrics before enabling several busy agents.

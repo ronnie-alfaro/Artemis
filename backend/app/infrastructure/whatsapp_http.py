@@ -42,6 +42,31 @@ class HttpWhatsAppClient:
         except (KeyError, IndexError, TypeError, ValueError) as error:
             raise WhatsAppTransportError("WhatsApp devolvió una actualización no válida") from error
 
+    async def download_image(self, media_id: str) -> bytes:
+        from urllib.parse import quote
+
+        response = await self._request("GET", "/media/" + quote(media_id, safe=""))
+        metadata = response.json()
+        url = httpx.URL(metadata["url"])
+        allowed = ("whatsapp.net", "whatsapp.com", "fbcdn.net")
+        if (url.scheme != "https" or url.userinfo or url.port not in (None, 443)
+                or not any(url.host == host or url.host.endswith("." + host) for host in allowed)):
+            raise ValueError("Origen de imagen no permitido")
+        if int(metadata.get("file_size", 0)) > 10 * 1024 * 1024:
+            raise ValueError("Imagen demasiado grande")
+        try:
+            async with self._client.stream("GET", url, follow_redirects=False) as download:
+                if download.status_code != 200:
+                    raise ValueError("No pude descargar la imagen de WhatsApp")
+                data = bytearray()
+                async for chunk in download.aiter_bytes():
+                    data.extend(chunk)
+                    if len(data) > 10 * 1024 * 1024:
+                        raise ValueError("Imagen demasiado grande")
+                return bytes(data)
+        except httpx.HTTPError:
+            raise ValueError("No pude descargar la imagen de WhatsApp") from None
+
     async def mark_read(self, message_id: str, typing: bool = False) -> None:
         payload: dict[str, object] = {
             "messaging_product": "whatsapp",

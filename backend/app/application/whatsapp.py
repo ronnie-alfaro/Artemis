@@ -2,13 +2,28 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import re
+import time
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+from app.application.image_ingestion import ImageIngestion, ImageUnavailable
 from app.application.whatsapp_formatting import whatsapp_chunks
-from app.domain.models import Channel, ChatResponse, IncomingMessage, OutgoingMessage
-from app.domain.whatsapp import WhatsAppChannelStatus, WhatsAppInbound, WhatsAppSettings
+from app.domain.models import (
+    Channel,
+    ChatResponse,
+    ExecutionPlan,
+    IncomingMessage,
+    OutgoingMessage,
+)
+from app.domain.whatsapp import (
+    WhatsAppChannelStatus,
+    WhatsAppInbound,
+    WhatsAppMessageType,
+    WhatsAppSettings,
+)
 from app.domain.whatsapp_ports import WhatsAppClient, WhatsAppStateStore
 
 logger = logging.getLogger(__name__)
@@ -27,9 +42,11 @@ class WhatsAppAgentRuntime:
         handle: HandleMessage,
         *,
         channel_name: str = "whatsapp",
+        images: ImageIngestion | None = None,
         allowed_recipient_ids: frozenset[str] | None = None,
     ) -> None:
         self._settings, self._client, self._state, self._handle = settings, client, state, handle
+        self.images = images
         self._allowed_recipient_ids = allowed_recipient_ids
         self._channel_name = channel_name
         self._agent_key = (settings.agent_name if channel_name == "whatsapp"
@@ -127,6 +144,9 @@ class WhatsAppAgentRuntime:
                 )
 
     async def run_once(self) -> None:
+        purge = getattr(self._state, "purge_expired_images", None)
+        if purge:
+            await purge()
         await self._drain_pending()
         offset = await self._state.get_offset(self._agent_key)
         batch = await self._client.updates(offset, self._settings.poll_timeout_seconds)
@@ -165,22 +185,67 @@ class WhatsAppAgentRuntime:
         greeting = await self.greeting()
         # A status call is deliberately limited to messages that Artemis will answer.
         await self._client.mark_read(inbound.id, typing=True)
-        response = await self._handle(
-            IncomingMessage(
-                id=uuid5(NAMESPACE_URL, f"{self._channel_name}:{self._agent_key}:{inbound.id}"),
-                conversation_id=conversation_id,
-                channel=Channel(
-                    name=self._channel_name,
-                    version="agent/v1",
-                    allowed_capabilities=capabilities,
-                    assistant_greeting=greeting,
-                    assistant_persona=await self.persona(),
-                    natural_conversation=True,
-                    agent_name=self._settings.agent_name,
-                ),
-                content=content,
+        records = []
+        passive_answer = None
+        scope = f"{self._channel_name}:{self._agent_key}:{conversation_id}"
+        agent = self._settings.agent_name
+        if inbound.type == WhatsAppMessageType.IMAGE:
+            instruction = (inbound.text or (inbound.attachments[0].caption
+                           if inbound.attachments else "") or "").strip()
+            try:
+                if not self.images or not inbound.attachments:
+                    raise ImageUnavailable("No tengo disponible el análisis de imágenes.")
+                try:
+                    created = float(inbound.timestamp)
+                    if not math.isfinite(created) or created <= 0:
+                        raise ValueError("Invalid provider timestamp")
+                    created = min(created, time.time())
+                except ValueError:
+                    created = time.time()
+                for index, attachment in enumerate(inbound.attachments):
+                    records.append(await self.images.ingest(
+                        self._client, attachment, scope=scope, agent=agent,
+                        event_id=f"{inbound.id}:{index}", created_at=created,
+                    ))
+                if not instruction:
+                    passive_answer = "\n\n".join(
+                        f"Imagen `{r['id']}` (disponible 7 días).\n{r['description']}"
+                        for r in records
+                    )
+                else:
+                    content = instruction
+            except ValueError as error:
+                passive_answer = (str(error) if isinstance(error, ImageUnavailable)
+                                  else "No pude obtener la imagen. No ejecuté acciones.")
+        elif self.images:
+            records = await self.images.references(content, scope, agent)
+            if not records and re.search(r"img-[a-f0-9]{24}", content, re.I):
+                passive_answer = "No encuentro esa imagen aquí o ya caducó. Reenvíamela."
+        if len(records) > 1 and inbound.type != WhatsAppMessageType.IMAGE:
+            passive_answer = "Encontré varias imágenes. ¿Cuál quieres usar? " + ", ".join(
+                r["id"] for r in records)
+        if passive_answer is not None:
+            # Hard boundary: no planner, session, skill, queue or approval is invoked.
+            response = ChatResponse(
+                message=OutgoingMessage(conversation_id=conversation_id,
+                                        execution_id=uuid4(), content=passive_answer),
+                plan=ExecutionPlan(conversation_id=conversation_id, nodes=[]), executions=[],
             )
-        )
+        else:
+            response = await self._handle(
+                IncomingMessage(
+                    id=uuid5(NAMESPACE_URL, f"{self._channel_name}:{self._agent_key}:{inbound.id}"),
+                    conversation_id=conversation_id,
+                    channel=Channel(
+                        name=self._channel_name, version="agent/v1",
+                        allowed_capabilities=capabilities, assistant_greeting=greeting,
+                        assistant_persona=await self.persona(), natural_conversation=True,
+                        agent_name=agent,
+                    ),
+                    content=content, ephemeral_image_context=bool(records),
+                    image_context=ImageIngestion.context(records),
+                )
+            )
         outgoing = response.message
         if outgoing.deferred:
             await self._state.mark_completed(self._agent_key, inbound)

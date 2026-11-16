@@ -96,3 +96,19 @@ def test_memory_routes_validation_and_unavailable(tmp_path, monkeypatch):
         response = client.get("/api/v1/memory/agent_memory")
         assert response.status_code == 503
         assert "private path" not in response.text
+
+
+def test_image_memories_expire_and_semantic_search_is_conversation_scoped(tmp_path):
+    import time
+
+    manager = MemoryManager(str(tmp_path), encoder=Encoder())
+    metadata = {"kind": "image", "scope": "chat-a", "image_id": "img-a",
+                "expires_at": str(time.time() + 100)}
+    manager.remember_event("alice", "image-a", "cat picture", metadata)
+    manager.remember_event("alice", "image-b", "cat secret",
+                           {**metadata, "scope": "chat-b", "image_id": "img-b"})
+    expired = manager.remember_event("alice", "image-old", "cat old",
+                                    {**metadata, "expires_at": "1"})
+    assert manager.search_images("alice", "chat-a", "cat")[0]["image_id"] == "img-a"
+    assert manager.browse("agent_memory")["total"] == 2
+    assert all(item["id"] != expired for item in manager.search("agent_memory", "alice", "cat"))

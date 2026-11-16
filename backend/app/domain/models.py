@@ -66,6 +66,8 @@ class Conversation(BaseModel):
 
 
 class IncomingMessage(BaseModel):
+    ephemeral_image_context: bool = False
+    image_context: str = Field(default="", max_length=32000)
     id: UUID = Field(default_factory=uuid4)
     conversation_id: UUID
     channel: Channel

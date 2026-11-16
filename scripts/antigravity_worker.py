@@ -36,6 +36,7 @@ def command() -> list[str]:
 
 
 async def execute(path: Path, job: dict) -> None:
+    worker.register_image_expiry(job)
     natural = job.get("mode") == "assistant"
     if natural:
         for previous in worker.QUEUE.glob("*.json"):

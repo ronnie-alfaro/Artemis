@@ -26,7 +26,7 @@ class InteractionMemory:
 
     def enqueue(self, message: IncomingMessage, response: ChatResponse) -> None:
         # Skill bridge invocations are synthetic, not new user interactions.
-        if message.required_capabilities:
+        if message.required_capabilities or message.ephemeral_image_context:
             return
         event_id = str(uuid5(NAMESPACE_URL,
                             f"{message.channel.name}:{message.conversation_id}:{message.id}"))
@@ -58,6 +58,8 @@ class InteractionMemory:
         since = float(boundary.read_text())
         for queue in self.queues:
             for job in queue.recent(1000):
+                if "[Imagen temporal " in job.prompt:
+                    continue
                 if job.created_at < since or job.status not in {"completed", "failed"}:
                     continue
                 marker = queue.path(job.id, ".memory")

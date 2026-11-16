@@ -98,7 +98,8 @@ class AntigravityAgent:
                             "message_id": str(message.id),
                             "conversation_id": str(message.conversation_id),
                             "channel": message.channel.name,
-                            "prompt": text,
+                            "prompt": text + ("\n\n" + message.image_context
+                                              if message.image_context else ""),
                         },
                     )
                 )

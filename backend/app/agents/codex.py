@@ -104,7 +104,7 @@ class CodexAgent:
                                 ITERATION_PROMPT
                                 if iteration
                                 else SYNC_PROMPT if is_sync_command(text) else text
-                            ),
+                            ) + ("\n\n" + message.image_context if message.image_context else ""),
                         },
                     )
                 )

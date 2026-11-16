@@ -7,6 +7,8 @@ import asyncio
 import fcntl
 import json
 import os
+import re
+import time
 import signal
 from pathlib import Path
 from uuid import UUID
@@ -33,6 +35,7 @@ def history(job: dict) -> list[dict]:
             value.get("conversation_id") == job["conversation_id"]
             and value.get("channel") == job["channel"]
             and value.get("status") == "completed"
+            and "[Imagen temporal " not in value.get("prompt", "")
             and value["created_at"] < job["created_at"]
         ):
             previous.append(value)
@@ -42,7 +45,29 @@ def history(job: dict) -> list[dict]:
     ]
 
 
+def register_image_expiry(job: dict) -> None:
+    expiries = re.findall(r"\[Imagen temporal img-[a-f0-9]{24}; caduca ([0-9.]+)\]",
+                          job.get("prompt", ""))
+    if expiries:
+        directory = STATE / "image-expiry"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / str(UUID(job["id"]))).write_text(str(min(map(float, expiries))))
+
+
+def purge_image_artifacts() -> None:
+    for marker in (STATE / "image-expiry").glob("*"):
+        if float(marker.read_text()) > time.time():
+            continue
+        job_id = str(UUID(marker.name))
+        for directory in (QUEUE, STATE / "workspaces"):
+            for artifact in directory.glob(job_id + ".*"):
+                if artifact.is_file():
+                    artifact.unlink(missing_ok=True)
+        marker.unlink(missing_ok=True)
+
+
 async def execute(path: Path, job: dict) -> None:
+    register_image_expiry(job)
     job_id = str(UUID(job["id"]))
     (STATE / "workspaces").mkdir(parents=True, exist_ok=True)
     job.update(status="running", has_patch=False)
@@ -95,6 +120,8 @@ async def execute(path: Path, job: dict) -> None:
         str(answer_file),
         "-",
     ]
+    if "[Imagen temporal " in job.get("prompt", ""):
+        command.insert(2, "--ephemeral")
     environment = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/root"),
@@ -146,6 +173,7 @@ async def execute(path: Path, job: dict) -> None:
 
 async def heartbeat() -> None:
     while True:
+        purge_image_artifacts()
         (QUEUE / "heartbeat").touch()
         await asyncio.sleep(5)
 

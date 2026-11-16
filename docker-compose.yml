@@ -8,6 +8,8 @@ services:
       - ${ARTEMIS_ANTIGRAVITY_STATE_DIR:-/var/lib/artemis-antigravity}/queue:/data/antigravity
     environment:
       ARTEMIS_MEMORY_DIR: /data/memory
+      ARTEMIS_VISION_URL: ${ARTEMIS_VISION_URL:-}
+      ARTEMIS_VISION_MODEL: ${ARTEMIS_VISION_MODEL:-}
       ARTEMIS_ANTIGRAVITY_QUEUE_DIR: /data/antigravity
       ARTEMIS_CODEX_QUEUE_DIR: /data/codex
       ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT: ${ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT:-}

@@ -7,6 +7,7 @@ import httpx
 
 from app.domain.models import OutgoingMessage
 from app.domain.whatsapp import (
+    WhatsAppAttachment,
     WhatsAppInbound,
     WhatsAppMessageType,
     WhatsAppSettings,
@@ -79,18 +80,45 @@ class HttpTelegramClient:
             message = update.get("message", {})
             chat, sender = message.get("chat", {}), message.get("from", {})
             if (chat.get("type") != "private" or sender.get("id") not in self._allowed
-                    or sender.get("is_bot") or not message.get("text")):
+                    or sender.get("is_bot")
+                    or not (message.get("text") or message.get("photo"))):
                 continue
-            text = message["text"]
+            text = message.get("text") or message.get("caption") or ""
             if text == "/start":
                 text = "hola"
             elif text == "/help":
                 text = "ayuda"
             messages.append(WhatsAppInbound(
                 id=str(update["update_id"]), sender_id=str(chat["id"]),
-                timestamp=str(message.get("date", "")), type=WhatsAppMessageType.TEXT, text=text,
+                timestamp=str(message.get("date", "")),
+                type=(WhatsAppMessageType.IMAGE if message.get("photo")
+                      else WhatsAppMessageType.TEXT),
+                text=text or None,
+                attachments=[WhatsAppAttachment(id=message["photo"][-1]["file_id"],
+                                                caption=message.get("caption"))]
+                if message.get("photo") else [],
             ))
         return WhatsAppUpdateBatch(messages=messages, next_offset=next_offset)
+
+    async def download_image(self, media_id: str) -> bytes:
+        result = await self._call("getFile", {"file_id": media_id})
+        if result.get("file_size", 0) > 10 * 1024 * 1024:
+            raise ValueError("Imagen demasiado grande")
+        path = result["file_path"]
+        if not isinstance(path, str) or ".." in path or path.startswith("/"):
+            raise ValueError("Ruta de imagen no válida")
+        url = str(self._client.base_url).replace("/bot", "/file/bot") + path
+        try:
+            async with self._client.stream("GET", url) as response:
+                response.raise_for_status()
+                data = bytearray()
+                async for chunk in response.aiter_bytes():
+                    data.extend(chunk)
+                    if len(data) > 10 * 1024 * 1024:
+                        raise ValueError("Imagen demasiado grande")
+                return bytes(data)
+        except httpx.HTTPError:
+            raise ValueError("No pude descargar la imagen de Telegram") from None
 
     async def mark_read(self, message_id: str, typing: bool = False) -> None:
         pass

@@ -79,6 +79,12 @@ class PostgresWhatsAppStateStore:
             raise RuntimeError("WhatsApp state store is not started")
         return self._pool
 
+    async def purge_expired_images(self) -> None:
+        await self._connection_pool.execute(
+            "DELETE FROM whatsapp_inbox WHERE payload->>'type' = 'image' "
+            "AND received_at <= now() - interval '7 days'"
+        )
+
     async def get_offset(self, agent_name: str) -> int | None:
         value = await self._connection_pool.fetchval(
             "SELECT next_offset FROM whatsapp_poll_state WHERE agent_name = $1", agent_name

@@ -55,3 +55,23 @@ async def test_worker_executes_with_write_permissions_in_real_source(tmp_path, m
     assert saved["answer"] == "Terminado"
     assert saved["has_patch"] is False
     assert not list(queue.glob("*.patch"))
+
+
+def test_visual_history_is_excluded_and_artifacts_expire(tmp_path, monkeypatch):
+    import time
+
+    monkeypatch.setattr(codex_worker, "STATE", tmp_path)
+    monkeypatch.setattr(codex_worker, "QUEUE", tmp_path / "queue")
+    (tmp_path / "queue").mkdir()
+    (tmp_path / "workspaces").mkdir()
+    job_id = str(uuid4())
+    prompt = "[Imagen temporal img-" + "a" * 24 + "; caduca 1.0] gato"
+    job = {"id": job_id, "prompt": prompt, "status": "completed", "created_at": time.time() - 1,
+           "channel": "telegram", "conversation_id": "chat", "answer": "gato"}
+    (tmp_path / "queue" / (job_id + ".json")).write_text(json.dumps(job))
+    (tmp_path / "workspaces" / (job_id + ".log")).write_text("visual data")
+    codex_worker.register_image_expiry(job)
+    assert codex_worker.history({**job, "created_at": time.time()}) == []
+    codex_worker.purge_image_artifacts()
+    assert not list((tmp_path / "queue").glob("*"))
+    assert not list((tmp_path / "workspaces").glob("*"))
