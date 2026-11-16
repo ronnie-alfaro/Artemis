@@ -56,7 +56,20 @@ class HttpSeerrClient:
             results = []
             for item in payload["results"]:
                 media_type = MediaType(item["type"])
-                media = await self.get_media_details(media_type, item["media"]["tmdbId"])
+                tmdb_id = item["media"]["tmdbId"]
+                try:
+                    media = await self.get_media_details(media_type, tmdb_id)
+                except SeerrClientError as error:
+                    if error.code not in {
+                        SeerrClientErrorCode.UNEXPECTED, SeerrClientErrorCode.NOT_FOUND,
+                        SeerrClientErrorCode.TIMEOUT, SeerrClientErrorCode.NETWORK,
+                    }:
+                        raise
+                    # A broken TMDB detail must not hide the rest of the requests.
+                    media = SeerrMedia(
+                        media_type=media_type, tmdb_id=tmdb_id,
+                        title=f"TMDB {tmdb_id} (título no disponible)",
+                    )
                 results.append(SeerrPendingRequest(
                     request_id=item["id"], media=media,
                     status={1: "pendiente de aprobación", 2: "aprobada; pendiente de disponibilidad"}.get(

@@ -454,3 +454,65 @@ def test_api_control_plane_approval_executes_once() -> None:
     with pytest.raises(PermissionError, match="executed"):
         client.post(f"/api/v1/approvals/{approval_id}/approve")
     assert fake.created == 1
+
+
+@pytest.mark.parametrize("detail_status", [404, 500, 503])
+def test_pending_preserves_requests_when_a_title_is_unavailable(detail_status: int) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/request":
+            return httpx.Response(200, json={"pageInfo": {"results": 2}, "results": [
+                {"id": 183, "type": "movie", "status": 2, "media": {"tmdbId": 1}},
+                {"id": 182, "type": "tv", "status": 1, "media": {"tmdbId": 2}},
+            ]})
+        if request.url.path == "/api/v1/movie/1":
+            return httpx.Response(detail_status)
+        return httpx.Response(200, json={"id": 2, "name": "Dark"})
+
+    client = HttpSeerrClient(
+        SeerrSettings(base_url="https://seerr.example", api_key="test-key"),
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = asyncio.run(client.list_pending_requests())
+    assert result.total == 2
+    assert [item.request_id for item in result.results] == [183, 182]
+    assert result.results[0].media.title == "TMDB 1 (título no disponible)"
+    assert result.results[1].media.title == "Dark"
+
+
+@pytest.mark.parametrize("command", [
+    "estado solicitud 183", "estado de la petición #183", "estado 183",
+    "estado por ID 183", "estado solicitud ID 183", "ver estado ID 183 en Seerr",
+])
+def test_status_accepts_request_id_variants(command: str) -> None:
+    from app.agents.seerr import SeerrAgent
+
+    assert SeerrAgent._status_id(command) == 183
+
+
+def test_pending_does_not_hide_detail_authorization_errors() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/request":
+            return httpx.Response(200, json={"pageInfo": {"results": 1}, "results": [
+                {"id": 183, "type": "movie", "status": 2, "media": {"tmdbId": 1}},
+            ]})
+        return httpx.Response(403)
+
+    client = HttpSeerrClient(
+        SeerrSettings(base_url="https://seerr.example", api_key="test-key"),
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(SeerrClientError) as error:
+        asyncio.run(client.list_pending_requests())
+    assert error.value.code == SeerrClientErrorCode.FORBIDDEN
+
+
+def test_status_not_found_explains_which_id_to_use() -> None:
+    class MissingSeerr(FakeSeerr):
+        async def get_request_status(self, request_id: int) -> SeerrRequestStatus:
+            raise SeerrClientError(SeerrClientErrorCode.NOT_FOUND, "Error genérico")
+
+    response = asyncio.run(build_orchestrator(MissingSeerr()).handle(IncomingMessage(
+        conversation_id=uuid4(), channel=Channel(name="rest"), content="estado por ID 999",
+    )))
+    assert "No encontré la solicitud 999" in response.message.content
+    assert "TMDB" in response.message.content

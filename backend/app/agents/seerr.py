@@ -111,7 +111,10 @@ class SeerrAgent:
             try:
                 result = await self._client.get_request_status(status_id)
             except SeerrClientError as error:
-                return self._response(request, error.safe_message)
+                return self._response(request,
+                    f"No encontré la solicitud {status_id} en Seerr. Usa el ID de solicitud, no el de TMDB."
+                    if error.code.value == "not_found" else error.safe_message,
+                    {"seerr_error": error.code.value})
             return self._response(request, f"Solicitud {result.request_id}: {result.status}.",
                                   {"tool": "seerr.get_request_status"})
         page = self._pending_page(content)
@@ -130,7 +133,8 @@ class SeerrAgent:
     @staticmethod
     def _status_id(content: str) -> int | None:
         match = re.fullmatch(
-            r"(?:ver\s+)?estado\s+(?:de\s+)?(?:(?:la\s+)?(?:solicitud|petici[oó]n)\s+)"
+            r"(?:ver\s+)?estado\s+(?:de\s+)?(?:(?:la\s+)?(?:solicitud|petici[oó]n)\s+)?"
+            r"(?:(?:por\s+)?id\s+)?"
             r"#?([1-9][0-9]{0,9})(?:\s+(?:en|de)\s+seerr)?[.!?]?",
             content.strip(), re.IGNORECASE,
         )
