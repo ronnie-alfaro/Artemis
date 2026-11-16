@@ -58,9 +58,20 @@ Al aceptar la tarea, Artemis devuelve el monólogo de Sócrates definido en
 `app/application/iteration.py`. Codex recibe una instrucción independiente para
 examinar el repositorio, elegir un único problema pequeño, corregirlo directamente
 y ejecutar las comprobaciones pertinentes, respetando los cambios existentes.
-No debe desplegar, publicar, crear commits ni encadenar nuevas iteraciones.
+Debe comprobar, crear el commit propio, sincronizar y desplegar conforme a `AGENTS.md`,
+sin encadenar nuevas iteraciones.
 Si no hay una mejora pequeña segura, debe explicar el resultado sin forzar cambios.
 El informe vuelve al chat original mediante la entrega normal de Codex; los
-archivos corregidos no implican un despliegue automático. Si Codex no está conectado
+archivos corregidos se despliegan automáticamente tras superar las comprobaciones. Si Codex no está conectado
 o la cola está llena, se informa del error sin afirmar que la tarea ha comenzado.
 Los reintentos del mismo mensaje reutilizan el trabajo existente.
+
+## Cierre automático de tareas
+
+Cada tarea completada incluye reconstrucción y recreación de `artemis-api` y
+`artemis-web`, incluso sin cambios, salvo prohibición explícita del usuario.
+Se conserva el entorno Compose activo, PostgreSQL y los volúmenes. Antes de
+publicar cambios deben pasar las comprobaciones y sincronizarse el commit propio.
+El agente verifica salud, HTTP y logs y comunica cualquier bloqueo sin afirmar éxito.
+La política está en `AGENTS.md` y en las instrucciones del trabajador. Al actualizar
+el trabajador instalado, su reinicio debe esperar al cierre del trabajo activo.
