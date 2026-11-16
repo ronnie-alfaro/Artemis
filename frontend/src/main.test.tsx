@@ -61,7 +61,9 @@ describe("Artemis en español", () => {
     fireEvent.click(screen.getByText(/Ver operaciones disponibles/));
     expect(screen.getByText("Buscar títulos")).toBeDefined();
     expect(screen.getByText("Solicitar título")).toBeDefined();
-    expect(screen.getByText("Modifica datos")).toBeDefined();
+    expect(screen.getByText("Ver pendientes")).toBeDefined();
+    expect(screen.getByText("API de Seerr")).toBeDefined();
+    expect(screen.getAllByText("Modifica datos").length).toBeGreaterThan(0);
   });
 
   it("preserves skill binding by drag and drop and only persists optional capabilities", async () => {

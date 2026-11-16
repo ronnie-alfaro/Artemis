@@ -25,7 +25,10 @@ DEFAULT_PRESENTATIONS = {
     "codex": SkillPresentation(
         name="Codex", description="Conversa y crea herramientas para Artemis."
     ),
-    "seerr": SkillPresentation(name="Seerr", description="Busca y solicita películas y series."),
+    "seerr": SkillPresentation(
+        name="Seerr",
+        description="Consulta pendientes y estados, solicita títulos y usa la API de Seerr.",
+    ),
     "karakeep": SkillPresentation(name="Karakeep", description="Busca y guarda enlaces."),
     "usenet": SkillPresentation(name="Usenet", description="Busca títulos y gestiona descargas."),
 }

@@ -8,6 +8,7 @@ import httpx
 
 from app.domain.seerr import (
     MediaType,
+    SeerrApiInput,
     SeerrClientError,
     SeerrClientErrorCode,
     SeerrMedia,
@@ -27,6 +28,11 @@ class HttpSeerrClient:
     def __init__(self, settings: SeerrSettings, client: httpx.AsyncClient | None = None) -> None:
         self._settings = settings
         self._client = client or httpx.AsyncClient(timeout=settings.timeout_seconds)
+
+    async def api_request(self, request: SeerrApiInput) -> object:
+        request = SeerrApiInput.model_validate(request.model_dump())
+        kwargs = {"json": request.body} if request.body is not None else {}
+        return await self._request(request.method, request.path, **kwargs)
 
     async def test_connection(self) -> None:
         payload = await self._request("GET", "/api/v1/auth/me")
@@ -107,9 +113,21 @@ class HttpSeerrClient:
             raise SeerrClientError(
                 SeerrClientErrorCode.UNEXPECTED, "Seerr returned an unexpected status response."
             )
-        return SeerrRequestStatus(
-            request_id=request_id, status=str(payload.get("status", "unknown"))
-        )
+        status = payload.get("status")
+        if type(status) is not int or status not in {1, 2, 3}:
+            raise SeerrClientError(
+                SeerrClientErrorCode.UNEXPECTED, "Seerr devolvió un estado no válido."
+            )
+        availability = payload.get("media", {})
+        availability = availability.get("status") if isinstance(availability, dict) else None
+        label = {1: "pendiente de aprobación", 2: "aprobada", 3: "rechazada"}[status]
+        media_label = {1: "desconocida", 2: "pendiente", 3: "en proceso",
+                       4: "parcialmente disponible", 5: "disponible", 6: "eliminada"}.get(
+                           availability if type(availability) is int else 0
+                       )
+        if media_label:
+            label += f" · contenido: {media_label}"
+        return SeerrRequestStatus(request_id=request_id, status=label)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> object:
         try:
@@ -152,6 +170,8 @@ class HttpSeerrClient:
             raise SeerrClientError(
                 SeerrClientErrorCode.UNEXPECTED, "Seerr devolvió un error inesperado."
             )
+        if response.status_code == 204:
+            return None
         try:
             return response.json()
         except ValueError as error:

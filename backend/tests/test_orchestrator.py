@@ -34,7 +34,10 @@ def test_help_interrupts_skill_routing_without_changing_pending_approval() -> No
             ]), content=content,
         )))
         assert response.executions[0].agent_name == "status"
-        assert "Seerr: Busca y solicita películas y series." in response.message.content
+        assert (
+            "Seerr: Consulta pendientes y estados, solicita títulos y usa la API de Seerr."
+            in response.message.content
+        )
         assert "Karakeep: Busca y guarda enlaces." in response.message.content
         assert "Preparar una solicitud" not in response.message.content
         assert "Cancelar el guardado" not in response.message.content

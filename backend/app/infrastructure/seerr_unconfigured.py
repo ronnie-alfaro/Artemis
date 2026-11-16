@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.domain.seerr import (
     MediaType,
+    SeerrApiInput,
     SeerrClientError,
     SeerrClientErrorCode,
     SeerrMedia,
@@ -22,6 +23,9 @@ class UnconfiguredSeerrClient:
             SeerrClientErrorCode.CONFIGURATION,
             "Seerr no está configurado. Configura su conexión en Habilidades para empezar.",
         )
+
+    async def api_request(self, request: SeerrApiInput) -> object:
+        raise self._error()
 
     async def list_pending_requests(self, page: int = 1) -> SeerrPendingRequests:
         raise self._error()

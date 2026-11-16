@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import re
 from enum import StrEnum
-from typing import Protocol
+from typing import Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 
 class MediaType(StrEnum):
@@ -100,7 +101,29 @@ class SeerrConfigurationInput(BaseModel):
     api_key: str = Field(min_length=1, max_length=1024)
 
 
+class SeerrApiInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"] = "GET"
+    path: str = Field(min_length=1, max_length=2000)
+    body: dict[str, object] | list[object] | None = None
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        # Accept only literal API paths, never URLs, encoded traversal or fragments.
+        path = value.split("?", 1)[0]
+        if (
+            not re.fullmatch(r"/api/v1/[A-Za-z0-9_/-]+", path)
+            or any(part in {".", "..", ""} for part in path[1:].split("/"))
+            or any(char in value for char in "\\\r\n#")
+        ):
+            raise ValueError("Usa una ruta /api/v1/ válida de Seerr")
+        return value
+
+
 class SeerrClient(Protocol):
+    async def api_request(self, request: SeerrApiInput) -> object: ...
+
     async def list_pending_requests(self, page: int = 1) -> SeerrPendingRequests: ...
 
     async def search_media(self, query: str) -> SeerrSearchResult: ...

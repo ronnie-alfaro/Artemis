@@ -28,7 +28,10 @@ def test_status_agent_uses_custom_greeting_and_only_bound_skills() -> None:
         ).run(AgentRequest(execution_id=uuid4(), node_id="status", message=message))
     )
     assert "Bienvenido a Cine Club." in response.result.content
-    assert "Seerr: Busca y solicita películas y series." in response.result.content
+    assert (
+        "Seerr: Consulta pendientes y estados, solicita títulos y usa la API de Seerr."
+        in response.result.content
+    )
 
 
 def test_status_agent_does_not_advertise_unbound_skills() -> None:

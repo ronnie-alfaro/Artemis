@@ -903,7 +903,10 @@ def create_app() -> FastAPI:
         orchestrator: Orchestrator = app.state.orchestrator
         approval = orchestrator.approvals.approve(approval_id)  # type: ignore[attr-defined]
         await orchestrator.approvals.flush()  # type: ignore[attr-defined]
-        if approval.tool_name == "seerr.create_request" and orchestrator.seerr_agent:  # type: ignore[attr-defined]
+        if (
+            approval.tool_name in {"seerr.create_request", "seerr.api_write"}
+            and orchestrator.seerr_agent  # type: ignore[attr-defined]
+        ):
             await orchestrator.seerr_agent.approve_operation(approval)  # type: ignore[attr-defined]
         if approval.tool_name == "karakeep.create_bookmark" and orchestrator.karakeep_agent:  # type: ignore[attr-defined]
             await orchestrator.karakeep_agent.approve_operation(approval)  # type: ignore[attr-defined]
