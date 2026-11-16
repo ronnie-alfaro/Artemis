@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
-export type IconName = "home" | "agents" | "skills" | "tools" | "channels" | "settings" | "search" | "arrow" | "clock" | "bolt" | "check" | "moon" | "sun" | "close" | "menu" | "bell" | "webhook";
+export type IconName = "brain" | "home" | "agents" | "skills" | "tools" | "channels" | "settings" | "search" | "arrow" | "clock" | "bolt" | "check" | "moon" | "sun" | "close" | "menu" | "bell" | "webhook";
 const paths: Record<IconName, ReactNode> = {
+  brain: <><path d="M12 5c-3-5-8-1-7 3-4 1-3 7 0 8-1 5 5 7 7 3V5Zm0 0c3-5 8-1 7 3 4 1 3 7 0 8 1 5-5 7-7 3M5 8l3 2M5 16l3-2m11-6-3 2m3 6-3-2"/></>,
   home: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
   agents: <><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2M19 4l2 2M3 4l2 2"/></>,
   skills: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z M4 7.5l8 5 8-5M12 12.5V21"/></>,

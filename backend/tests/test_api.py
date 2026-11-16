@@ -40,10 +40,12 @@ def test_admin_token_protects_control_plane_api(monkeypatch) -> None:
     monkeypatch.setenv("ARTEMIS_ADMIN_TOKEN", "operator-secret")
     with TestClient(create_app()) as client:
         protected = client.get("/api/v1/channels/whatsapp")
+        memory = client.get("/api/v1/memory/agent_memory")
         status = client.get("/api/v1/auth/status")
         authorized = client.get(
             "/api/v1/channels/whatsapp", headers={"Authorization": "Bearer operator-secret"}
         )
+    assert memory.status_code == 401
     assert protected.status_code == 401
     assert status.json() == {"authentication_required": True}
     assert authorized.status_code == 200

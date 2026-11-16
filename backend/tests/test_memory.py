@@ -60,3 +60,39 @@ async def test_tools_approval_and_scope(tmp_path):
         input={"text": "cat", "agent": "bob"},
     ))
     assert result.output["result"] == "[]"
+
+
+def test_admin_browse_vectors_pagination_and_scope(tmp_path):
+    manager = MemoryManager(str(tmp_path), encoder=Encoder())
+    manager.remember("agent_memory", "alice", "cat")
+    manager.remember("agent_memory", "bob", "dog")
+    page = manager.browse("agent_memory", limit=1)
+    assert page["total"] == 2
+    assert len(page["items"]) == 1
+    assert len(page["items"][0]["embedding"]) == 2
+    scoped = manager.browse("agent_memory", agent="bob")
+    assert scoped["total"] == 1
+    assert scoped["items"][0]["text"] == "dog"
+    assert manager.browse("agent_memory", offset=2)["items"] == []
+    assert manager.browse("agent_persona")["total"] == 0
+
+
+def test_memory_routes_validation_and_unavailable(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.memory import install_memory_routes
+
+    manager = MemoryManager(str(tmp_path), encoder=Encoder())
+    app = FastAPI()
+    install_memory_routes(app, manager)
+    with TestClient(app) as client:
+        assert client.get("/api/v1/memory/agent_memory").json()["total"] == 0
+        for path in ("invalid", "agent_memory?offset=-1", "agent_memory?limit=51"):
+            assert client.get(f"/api/v1/memory/{path}").status_code == 422
+        def unavailable(*args, **kwargs):
+            raise RuntimeError("private path")
+        monkeypatch.setattr(manager, "browse", unavailable)
+        response = client.get("/api/v1/memory/agent_memory")
+        assert response.status_code == 503
+        assert "private path" not in response.text

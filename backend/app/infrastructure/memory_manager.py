@@ -86,6 +86,26 @@ class MemoryManager:
                 )
             ]
 
+    def browse(self, collection: str, agent: str | None = None,
+               offset: int = 0, limit: int = 20) -> dict[str, Any]:
+        """Read a bounded page for the authenticated administrative panel, without encoding."""
+        if offset < 0 or not 1 <= limit <= 50:
+            raise ValueError("Paginación no válida.")
+        with self._lock:
+            target = self._collection(collection)
+            filters = {"agent": agent} if agent else None
+            # Count the selected scope without reading document or vector payloads.
+            total = len(target.get(where=filters, include=[])["ids"]) if agent else target.count()
+            result = target.get(where=filters, offset=offset, limit=limit,
+                                include=["documents", "metadatas", "embeddings"])
+            embeddings = result["embeddings"]
+            return {"total": total, "offset": offset, "limit": limit, "items": [
+                {"id": key, "text": result["documents"][i],
+                 "metadata": result["metadatas"][i],
+                 "embedding": embeddings[i].tolist() if embeddings is not None else []}
+                for i, key in enumerate(result["ids"])
+            ]}
+
     def forget(self, collection: str, agent: str, memory_id: str) -> bool:
         self._validate(agent, memory_id)
         with self._lock:

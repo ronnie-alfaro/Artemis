@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { Agents } from "./Agents";
 import { Skills } from "./Skills";
+import { Brain } from "./Brain";
 import { Tools } from "./Tools";
 import { Overview } from "./Overview";
 import { apiFetch } from "./api";
@@ -11,7 +12,7 @@ import "./styles.css";
 import "./brand.css";
 import "./skills.css";
 
-type View = "Overview" | "Agents" | "Skills" | "Tools" | "Channels" | "Settings";
+type View = "Overview" | "Agents" | "Skills" | "Tools" | "Channels" | "Settings" | "Brain";
 type ToolId = "notifications" | "webhooks" | "reminders";
 type Route = { view: View; tool?: ToolId };
 type Preferences = { theme: "dark" | "light"; motion: "full" | "reduced"; density: "comfortable" | "compact" };
@@ -20,6 +21,7 @@ const navigation: { id: View; label: string; icon: IconName; path: string; descr
   { id: "Agents", label: "Agentes", icon: "agents", path: "agentes", description: "Conversaciones y habilidades asignadas" },
   { id: "Skills", label: "Habilidades", icon: "skills", path: "habilidades", description: "Seerr, Karakeep, Usenet, Codex y Antigravity" },
   { id: "Tools", label: "Herramientas", icon: "tools", path: "herramientas", description: "Notificaciones, webhooks y recordatorios" },
+  { id: "Brain", label: "Cerebro", icon: "brain", path: "cerebro", description: "Memoria vectorial, herramientas nativas y minions" },
   { id: "Channels", label: "Canales", icon: "channels", path: "canales", description: "Tus conexiones con WhatsApp y Telegram" },
   { id: "Settings", label: "Ajustes", icon: "settings", path: "ajustes", description: "Haz que este espacio sea tuyo" },
 ];
@@ -104,6 +106,7 @@ export function App() {
   const pages: Record<View, ReactNode> = {
     Overview: <Overview navigate={navigate}/>, Agents: <Agents apiFetch={apiFetch}/>, Skills: <Skills apiFetch={apiFetch}/>,
     Tools: <Tools apiFetch={apiFetch} activeTool={route.tool ?? "notifications"} onSelectTool={tool => navigate("Tools", tool)}/>,
+    Brain: <Brain/>,
     Channels: <Channels onAgents={() => navigate("Agents")}/>, Settings: <Settings preferences={preferences} onChange={setPreferences}/>,
   };
   return <main className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}><a href="#contenido" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("contenido")?.focus(); }}>Ir al contenido</a><aside className="sidebar"><button className="brand" onClick={() => navigate("Overview")} aria-label="Artemis, ir al inicio"><img src="/artemis-logo.png?v=2" alt=""/><span>ARTEMIS<small>TU CENTRAL DE MANDO</small></span><span className="brand-spark">✦</span></button><div className="workspace-chip"><span className="workspace-avatar">A</span><div><strong>Mi espacio</strong><small>Espacio personal</small></div><Icon name="check" size={15}/></div><span className="nav-caption">EXPLORAR</span><nav aria-label="Navegación principal">{navigation.map((item, index) => <button key={item.id} onClick={() => navigate(item.id)} className={route.view === item.id ? "active" : ""} aria-current={route.view === item.id ? "page" : undefined} aria-label={item.label} title={collapsed ? item.label : undefined}><Icon name={item.icon}/><span>{item.label}</span><small>0{index + 1}</small>{route.view === item.id && <i className="nav-beam"/>}</button>)}</nav><div className="sidebar-note"><span>✦</span><p>Tus herramientas.<br/><strong>En un solo lugar.</strong></p><div className="signal-line"/></div><div className="sidebar-footer"><span className={`connection-dot ${health}`}/><div><strong>{health === "online" ? "Servidor conectado" : health === "offline" ? "Servidor sin respuesta" : "Comprobando servidor"}</strong><small>Tu servidor, tus reglas.</small></div></div></aside><section className="app-main"><div className="topbar"><div className="topbar-breadcrumb"><button aria-label={collapsed ? "Expandir menú" : "Contraer menú"} className="icon-button collapse-button" onClick={() => setCollapsed(value => !value)}><Icon name="menu" size={19}/></button><span>Mi espacio</span><b>/</b><strong>{selected.label}</strong></div><div className="topbar-actions"><button className="search-trigger" onClick={() => setSearchOpen(true)}><Icon name="search" size={16}/><span>Buscar algo…</span><kbd>Ctrl K</kbd></button><Clock/><button className="icon-button" aria-label={preferences.theme === "dark" ? "Activar tema claro" : "Activar tema oscuro"} onClick={() => setPreferences(value => ({ ...value, theme: value.theme === "dark" ? "light" : "dark" }))}><Icon name={preferences.theme === "dark" ? "sun" : "moon"} size={19}/></button></div></div><div className="workspace" id="contenido" tabIndex={-1}><div className="view-stage" key={route.view}>{pages[route.view]}</div><footer className="workspace-footer"><span>ARTEMIS <b>✦</b> TODO EN UN SOLO LUGAR</span><StatusTag tone={health === "online" ? "good" : "neutral"}>{health === "online" ? "Servidor en línea" : health === "offline" ? "Revisar conexión" : "Comprobando"}</StatusTag></footer></div></section>{searchOpen && <CommandPalette close={() => setSearchOpen(false)} navigate={navigate}/>}</main>;

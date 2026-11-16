@@ -24,6 +24,7 @@ from app.agents.status import StatusAgent
 from app.agents.usenet import UsenetAgent
 from app.api.antigravity import install_antigravity_routes
 from app.api.codex import install_codex_routes
+from app.api.memory import install_memory_routes
 from app.api.minions import install_minion_routes
 from app.api.notifications import install_notification_routes
 from app.api.reminders import install_reminder_routes
@@ -483,6 +484,7 @@ def create_app() -> FastAPI:
     app.state.native_tools = native
     app.state.minions = MinionDispatcher({"local": LocalExecutor(native)})
     install_minion_routes(app, app.state.minions, native)
+    install_memory_routes(app, MemoryManager())
     install_usenet_routes(app, orchestrator)
     install_skill_routes(app, orchestrator)
     install_codex_routes(app, orchestrator.codex_queue)  # type: ignore[attr-defined]
