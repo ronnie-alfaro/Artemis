@@ -194,3 +194,40 @@ def test_model_cannot_grant_itself_approval(tmp_path, monkeypatch, user_confirme
         assert bool(called) == user_confirmed
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("skill", ["codex", "antigravity"])
+def test_bridge_dispatches_explicit_capability_before_session_commands(
+    tmp_path, monkeypatch, skill
+):
+    async def run():
+        codex_directory = tmp_path / "codex"
+        codex_directory.mkdir()
+        (codex_directory / "heartbeat").touch()
+        monkeypatch.setenv("ARTEMIS_CODEX_QUEUE_DIR", str(codex_directory))
+        orchestrator, bot, channel, bridge, _ = setup(tmp_path, monkeypatch)
+        capability = f"{skill}.assistant"
+        bot.allowed.append(capability)
+        channel.allowed_capabilities.append(capability)
+        await orchestrator.handle(
+            IncomingMessage(
+                conversation_id=bot.conversation, channel=channel, content="Revisa Artemis"
+            )
+        )
+        job = orchestrator.antigravity_queue.recent()[0]
+        command = f"utiliza {skill} revisa los logs del servicio"
+        job.status = "waiting_skill"
+        job.decision = {"capability": capability, "command": command}
+        orchestrator.antigravity_queue.save(job)
+        await bridge.run_once()
+        updated = orchestrator.antigravity_queue.load(job.id)
+        assert "no está disponible" not in updated.observations[0]["result"]
+        queue = getattr(orchestrator, f"{skill}_queue")
+        dispatched = [item for item in queue.recent() if item.mode == "chat"]
+        assert len(dispatched) == 1
+        assert dispatched[0].prompt == command
+        assert dispatched[0].channel == channel.name
+        assert dispatched[0].conversation_id == bot.conversation
+        assert await orchestrator.skill_sessions.store.get(channel.name, bot.conversation) is None
+
+    asyncio.run(run())

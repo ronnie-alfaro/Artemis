@@ -77,6 +77,10 @@ class SkillSessionRouter:
         return len(pending)
 
     async def route(self, message: IncomingMessage) -> tuple[IncomingMessage, dict[str, str]]:
+        # The bridge/API has already selected a capability. Its command is payload for
+        # that agent, even when it starts with session words such as "utiliza".
+        if message.required_capabilities:
+            return message, {}
         available = self._available(message)
         if is_iteration_command(message.content) or is_sync_command(message.content):
             if "codex" not in available:
@@ -133,9 +137,6 @@ class SkillSessionRouter:
         if help_target(text) is not None or normalized in {
             "ayuda", "/ayuda", "help", "/help", "qué puedes hacer", "que puedes hacer",
         }:
-            return message, {}
-        # Explicit API plans keep their existing semantics; chat commands use the active skill.
-        if message.required_capabilities:
             return message, {}
         if active:
             return message.model_copy(update={"required_capabilities": [available[active]]}), {}
