@@ -3,9 +3,11 @@ services:
     build: ./backend
     group_add: ["10002"]
     volumes:
+      - memory-data:/data/memory
       - ${ARTEMIS_CODEX_STATE_DIR:-/var/lib/artemis-codex}/queue:/data/codex
       - ${ARTEMIS_ANTIGRAVITY_STATE_DIR:-/var/lib/artemis-antigravity}/queue:/data/antigravity
     environment:
+      ARTEMIS_MEMORY_DIR: /data/memory
       ARTEMIS_ANTIGRAVITY_QUEUE_DIR: /data/antigravity
       ARTEMIS_CODEX_QUEUE_DIR: /data/codex
       ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT: ${ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT:-}
@@ -60,6 +62,7 @@ services:
       timeout: 5s
       retries: 5
 volumes:
+  memory-data:
   postgres-data:
 networks:
   internal:

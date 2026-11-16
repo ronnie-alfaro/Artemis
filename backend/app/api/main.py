@@ -92,6 +92,7 @@ from app.infrastructure.config_cipher import ConfigurationEncryptionError, confi
 from app.infrastructure.karakeep_config import PostgresKarakeepConfigurationStore
 from app.infrastructure.karakeep_http import HttpKarakeepClient
 from app.infrastructure.karakeep_unconfigured import UnconfiguredKarakeepClient
+from app.infrastructure.memory_manager import MemoryManager
 from app.infrastructure.reminders import PostgresReminderStore
 from app.infrastructure.seerr_config import PostgresSeerrConfigurationStore
 from app.infrastructure.seerr_http import HttpSeerrClient
@@ -112,6 +113,7 @@ from app.tools.notifications import SendNotificationTool
 from app.tools.registry import ToolRegistry
 from app.tools.reminders import CreateReminderTool
 from app.tools.seerr import SeerrRequestTool
+from app.tools.tools_memory import MemoryTool
 
 REQUESTS = Counter("artemis_requests_total", "Artemis requests", ["path", "status"])
 
@@ -123,6 +125,9 @@ def build_orchestrator(
 ) -> Orchestrator:
     approvals = ApprovalStore()
     tools = ToolRegistry(approvals)
+    memory = MemoryManager()
+    for action in ("search", "remember", "forget"):
+        tools.register(MemoryTool(memory, action))
     agents = AgentRegistry()
     client = seerr_client or UnconfiguredSeerrClient()
     tools.register(SeerrRequestTool(client), authorized_agents={"seerr"})
