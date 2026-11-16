@@ -14,7 +14,7 @@ COPY --from=builder /install /usr/local
 COPY app ./app
 RUN HF_HUB_OFFLINE=0 python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', device='cpu').save('/opt/models/all-MiniLM-L6-v2')"
 RUN mkdir -p /data/memory && chown artemis /data/memory
-RUN chmod -R a+rX /app/app
+RUN chmod -R a+rX /app/app /opt/models
 USER artemis
 EXPOSE 8000
 CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
