@@ -24,6 +24,7 @@ from app.agents.status import StatusAgent
 from app.agents.usenet import UsenetAgent
 from app.api.antigravity import install_antigravity_routes
 from app.api.codex import install_codex_routes
+from app.api.minions import install_minion_routes
 from app.api.notifications import install_notification_routes
 from app.api.reminders import install_reminder_routes
 from app.api.skills import install_skill_routes
@@ -34,6 +35,8 @@ from app.application.approvals import ApprovalStore
 from app.application.channels import ChannelController
 from app.application.codex import CodexDeliveryWorker, CodexQueue
 from app.application.conversation import ConversationAgent, ConversationSkillWorker
+from app.application.minions import LocalExecutor, MinionDispatcher
+from app.application.native_tools import NativeTools
 from app.application.notifications import NotificationService
 from app.application.orchestrator import (
     CapabilityPlanner,
@@ -109,6 +112,7 @@ from app.tools.antigravity import AntigravityTool
 from app.tools.codex import CodexTool
 from app.tools.github import GitHubTool
 from app.tools.karakeep import KarakeepBookmarkTool
+from app.tools.memory_contracts import register_memory_contracts
 from app.tools.notifications import SendNotificationTool
 from app.tools.registry import ToolRegistry
 from app.tools.reminders import CreateReminderTool
@@ -430,6 +434,7 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
+            await app.state.minions.close()
             await conversation_worker.stop()
             for worker in telegram_deliveries:
                 await worker.stop()
@@ -470,6 +475,14 @@ def create_app() -> FastAPI:
         title="Artemis API", version="0.1.0", openapi_url="/api/v1/openapi.json", lifespan=lifespan
     )
     app.state.orchestrator = orchestrator
+    native = NativeTools(
+        orchestrator.tools, orchestrator.approvals,  # type: ignore[attr-defined]
+        lambda capability, context: capability in context.capabilities,
+    )
+    register_memory_contracts(native)
+    app.state.native_tools = native
+    app.state.minions = MinionDispatcher({"local": LocalExecutor(native)})
+    install_minion_routes(app, app.state.minions, native)
     install_usenet_routes(app, orchestrator)
     install_skill_routes(app, orchestrator)
     install_codex_routes(app, orchestrator.codex_queue)  # type: ignore[attr-defined]
