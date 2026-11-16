@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID, uuid4
 
+from app.application.interaction_memory import InteractionMemory
 from app.application.registry import AgentRegistry
 from app.application.skill_sessions import SkillSessionRouter
 from app.domain.models import (
@@ -146,7 +148,9 @@ class Orchestrator:
     def __init__(
         self, planner: CapabilityPlanner, executor: DAGExecutor,
         skill_sessions: SkillSessionRouter | None = None,
+        interaction_memory: InteractionMemory | None = None,
     ) -> None:
+        self.interaction_memory = interaction_memory
         self.skill_sessions = skill_sessions
         self._conversation_locks: defaultdict[tuple[str, UUID], asyncio.Lock] = defaultdict(
             asyncio.Lock
@@ -156,7 +160,14 @@ class Orchestrator:
 
     async def handle(self, message: IncomingMessage) -> ChatResponse:
         async with self._conversation_locks[(message.channel.name, message.conversation_id)]:
-            return await self._handle(message)
+            response = await self._handle(message)
+            if self.interaction_memory:
+                try:
+                    await asyncio.to_thread(self.interaction_memory.enqueue, message, response)
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "No se pudo encolar la interacción en memoria")
+            return response
 
     async def _handle(self, message: IncomingMessage) -> ChatResponse:
         context: dict[str, str] = {}

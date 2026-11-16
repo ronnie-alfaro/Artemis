@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from threading import RLock
 from typing import Any
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 COLLECTIONS = ("agent_persona", "agent_memory", "agent_relations")
 MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -64,6 +64,18 @@ class MemoryManager:
             target.add(ids=[memory_id], documents=[text], embeddings=embedding,
                        metadatas=[{"agent": agent}])
             return memory_id
+
+    def remember_event(self, agent: str, event_id: str, text: str,
+                       metadata: dict[str, str]) -> str:
+        """Idempotent automatic memories, isolated from manual memories."""
+        self._validate(agent, text)
+        key = str(uuid5(NAMESPACE_URL, f"artemis-event:{agent}:{event_id}"))
+        with self._lock:
+            target = self._collection("agent_memory")
+            if not target.get(ids=[key], include=[])["ids"]:
+                target.add(ids=[key], documents=[text], embeddings=self._embed(text),
+                           metadatas=[{**metadata, "agent": agent, "source": "interaction"}])
+        return key
 
     def search(self, collection: str, agent: str, text: str,
                limit: int = 5) -> list[dict[str, Any]]:

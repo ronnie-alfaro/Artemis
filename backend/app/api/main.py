@@ -36,6 +36,7 @@ from app.application.approvals import ApprovalStore
 from app.application.channels import ChannelController
 from app.application.codex import CodexDeliveryWorker, CodexQueue
 from app.application.conversation import ConversationAgent, ConversationSkillWorker
+from app.application.interaction_memory import InteractionMemory
 from app.application.minions import LocalExecutor, MinionDispatcher
 from app.application.native_tools import NativeTools
 from app.application.notifications import NotificationService
@@ -197,7 +198,10 @@ def build_orchestrator(
         },
     )
     selectors = CompositeCapabilitySelector(karakeep_agent, usenet_agent, seerr_agent)
-    orchestrator = Orchestrator(CapabilityPlanner(agents, selectors), DAGExecutor(agents), sessions)
+    orchestrator = Orchestrator(
+        CapabilityPlanner(agents, selectors), DAGExecutor(agents), sessions,
+        interaction_memory=InteractionMemory(memory, (codex_queue, antigravity_queue)),
+    )
     orchestrator.reminders = reminders  # type: ignore[attr-defined]
     orchestrator.notifications = notifications  # type: ignore[attr-defined]
     orchestrator.approvals = approvals  # type: ignore[attr-defined]
@@ -382,6 +386,8 @@ def create_app() -> FastAPI:
         await runtime.start()
         await telegram.start()
         await conversation_worker.start()
+        if orchestrator.interaction_memory:
+            await orchestrator.interaction_memory.start()
         telegram_deliveries = []
         for queue, worker_type in (
             (orchestrator.codex_queue, CodexDeliveryWorker),  # type: ignore[attr-defined]
@@ -437,6 +443,8 @@ def create_app() -> FastAPI:
         finally:
             await app.state.minions.close()
             await conversation_worker.stop()
+            if orchestrator.interaction_memory:
+                await orchestrator.interaction_memory.stop()
             for worker in telegram_deliveries:
                 await worker.stop()
             if telegram:

@@ -54,3 +54,25 @@ La API y la web también necesitan la nueva imagen una vez. Las modificaciones p
 - Un fallo después de ejecutar una habilidad y antes de guardar su resultado puede provocar un reintento. Se conservan los mecanismos existentes de aprobaciones e idempotencia; no se garantiza ejecución exactamente una vez para toda habilidad.
 - Los comandos de sincronización e iteración mantienen su comportamiento previo y sus permisos de Codex.
 - Los clientes REST y los agentes invocados con capacidades explícitas conservan el enrutamiento anterior. El modo natural se activa en los adaptadores de los bots.
+
+## Memoria automática de Cerebro
+
+La API registra las interacciones nuevas en `agent_memory`, con agente, canal,
+conversación y fecha. Conserva el mensaje y la respuesta inmediata, o indica que
+la respuesta está pendiente. Los resultados definitivos de Codex y Antigravity
+se añaden como eventos separados, con su estado real, incluso si fallaron.
+No se importan trabajos anteriores a la primera activación del mecanismo.
+
+Una cola en el volumen `ARTEMIS_MEMORY_DIR/pending-interactions` conserva las
+interacciones pendientes de embeddings. Un trabajador revisa la cola cada cinco
+segundos, fuera del procesamiento del mensaje, y reintenta si Chroma falla.
+Los identificadores estables evitan duplicados tras reinicios o reintentos.
+Las invocaciones internas con capacidades explícitas no generan interacciones
+artificiales. Los textos se limitan a 7500 caracteres por participante.
+Los fallos de escritura de la propia cola se avisan en logs sin contenido privado;
+si el volumen no permite escribir, esa interacción no queda garantizada.
+
+El registro no añade recuperación automática al contexto del modelo ni cambia las
+aprobaciones de `memory.remember`. No sustituye una política de retención: los
+recuerdos se conservan hasta su eliminación explícita. Requiere actualizar la
+imagen de API para activarse; reiniciar una imagen antigua no aplica el código.
