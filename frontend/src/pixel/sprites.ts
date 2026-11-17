@@ -1,60 +1,81 @@
-export const CELL = 16;
-export const FRAMES = 4;
-
-const suits = [
-  { shell: "#f8ddae", shade: "#b58879", light: "#fff4d6", glass: "#50cfbc" },
-  { shell: "#f59279", shade: "#b9545f", light: "#ffd0a0", glass: "#fae49b" },
-  { shell: "#90d9ca", shade: "#438ba2", light: "#d7fff0", glass: "#fff0c0" },
-] as const;
+export const CELL = 24;
+export const POSES = { idle: 0, run: 1, jump: 5, wave: 6 } as const;
 
 export function makeSpriteSheet() {
   const sheet = document.createElement("canvas");
-  sheet.width = CELL * FRAMES;
-  sheet.height = CELL * suits.length;
+  sheet.width = 8 * CELL;
+  sheet.height = CELL;
   const ctx = sheet.getContext("2d");
   if (!ctx) return null;
 
-  suits.forEach((suit, row) => {
-    for (let frame = 0; frame < FRAMES; frame++) {
-      const pixel = (color: string, x: number, y: number, w: number, h: number) => {
-        ctx.fillStyle = color;
-        ctx.fillRect(frame * CELL + x, row * CELL + y, w, h);
-      };
-      const outline = "#241e36";
-      if (row === 2) {
-        const bob = frame === 1 || frame === 3 ? 1 : 0;
-        pixel(outline, 3, 5 + bob, 10, 8);
-        pixel(suit.shade, 4, 6 + bob, 8, 6);
-        pixel(suit.shell, 5, 6 + bob, 7, 4);
-        pixel(suit.glass, 8, 7 + bob, 3, 2);
-        pixel(suit.light, 7, 3 + bob, 1, 3);
-        pixel(suit.light, 7, 2 + bob, 2, 1);
-        pixel(outline, 4, 13 + bob, 3, 1);
-        pixel(outline, 9, 13 + bob, 3, 1);
-        pixel(suit.shell, 5 + frame % 2, 15, 5, 1);
-        continue;
-      }
+  const ink = "#241f36";
+  const hair = "#674051";
+  const gold = "#fadd99";
+  const skin = "#f1ac83";
+  const cloth = "#e4ecd5";
+  const shade = "#9baf9b";
+  const green = "#428c69";
 
-      const stride = [0, 2, 0, -2][frame];
-      const bob = frame === 2 ? 1 : 0;
-      pixel(outline, 4, 13, 7, 2);
-      pixel(suit.shade, 5 - stride, 14, 3, 2);
-      pixel(suit.shell, 8 + stride, 14, 3, 2);
-      pixel(outline, 2, 7 + bob, 4, 5);
-      pixel(suit.shade, 3, 8 + bob, 3, 3);
-      pixel(outline, 4, 7 + bob, 8, 7);
-      pixel(suit.shell, 5, 8 + bob, 6, 5);
-      pixel(suit.shade, 5, 12 + bob, 6, 1);
-      pixel(suit.light, 7, 9 + bob, 2, 2);
-      pixel(outline, 5, 1 + bob, 7, 7);
-      pixel(outline, 4, 3 + bob, 9, 4);
-      pixel(suit.shell, 6, 2 + bob, 5, 5);
-      pixel(suit.light, 6, 2 + bob, 4, 1);
-      pixel(suit.shade, 5, 4 + bob, 2, 3);
-      pixel(suit.glass, 8, 4 + bob, 4, 2);
-      pixel(suit.light, 9, 4 + bob, 1, 1);
-      pixel(suit.shell, 11, 9 + bob, 2, 3);
+  for (let frame = 0; frame < 8; frame++) {
+    const pixel = (color: string, x: number, y: number, w: number, h: number) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(frame * CELL + x, y, w, h);
+    };
+    const running = frame >= POSES.run && frame < POSES.jump;
+    const jumping = frame === POSES.jump;
+    const waving = frame >= POSES.wave;
+    const phase = frame - POSES.run;
+    const stride = running ? [-3, -1, 3, 1][phase] : 0;
+    const bob = Number(running && (phase === 1 || phase === 3));
+
+    // Bow, string, and traveling cloak sit behind the figure.
+    pixel("#d3af79", 5, 9 + bob, 1, 11);
+    pixel(ink, 4, 9 + bob, 1, 2);
+    pixel(gold, 3, 11 + bob, 1, 7);
+    pixel("#b67750", 4, 11 + bob, 1, 7);
+    pixel(gold, 4, 18 + bob, 1, 2);
+    pixel(ink, 6, 13 + bob, 5, 6);
+    pixel(green, running ? 5 : 7, 13 + bob, 5, 5);
+
+    // Sandals and asymmetric steps. The first foot is behind the tunic.
+    pixel(ink, 8 - stride, jumping ? 19 : 20, 4, 3);
+    pixel(skin, 9 - stride, jumping ? 19 : 20, 2, 2);
+    pixel(ink, 13 + stride, jumping ? 18 : 21, 4, 3);
+    pixel(skin, 14 + stride, jumping ? 18 : 21, 2, 2);
+    pixel("#926352", 14 + stride, jumping ? 20 : 23, 3, 1);
+
+    // Belt, tunic and front arm.
+    pixel(ink, 9, 11 + bob, 8, 8);
+    pixel(shade, 9, 16 + bob, 8, 3);
+    pixel(cloth, 10, 11 + bob, 6, 7);
+    pixel(gold, 10, 15 + bob, 6, 1);
+    pixel(shade, 12, 17 + bob, 2, 2);
+    pixel(ink, 16, 12 + bob, 2, 4);
+    if (waving) {
+      const reach = frame - POSES.wave;
+      pixel(ink, 17, 12, 4, 2);
+      pixel(ink, 19 + reach, 8, 2, 5);
+      pixel(skin, 18, 12, 2, 1);
+      pixel(skin, 20 + reach, 8, 1, 4);
+      pixel(gold, 22, 5 + reach * 2, 1, 2);
+    } else {
+      pixel(shade, 16, 12 + bob, 2, 1);
+      pixel(skin, 16, 13 + bob, 2, 2);
+      pixel(skin, 17, 14 + bob, 2, 1);
     }
-  });
+
+    // Profile, mischievous grin, and laurel.
+    pixel(ink, 7, 5 + bob, 4, 7);
+    pixel(hair, 7, 6 + bob, 3, 4);
+    pixel(ink, 9, 3 + bob, 8, 9);
+    pixel(hair, 9, 4 + bob, 7, 5);
+    pixel(skin, 12, 6 + bob, 5, 5);
+    pixel(ink, 16, 8 + bob, 2, 1);
+    pixel("#a85354", 15, 10 + bob, 2, 1);
+    pixel(green, 8, 5 + bob, 7, 2);
+    pixel(gold, 10, 4 + bob, 1, 1);
+    pixel("#a2c98e", 11, 4 + bob, 3, 1);
+    pixel("#a2c98e", 14, 3 + bob, 2, 1);
+  }
   return sheet;
 }

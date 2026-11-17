@@ -1,70 +1,67 @@
-export function buildScenery(width: number, height: number, light: boolean) {
-  const layer = document.createElement("canvas");
-  layer.width = width;
-  layer.height = height;
-  const ctx = layer.getContext("2d");
-  const ground = Math.floor(height * 0.81);
-  if (!ctx) return { layer, ground };
-
-  const colors = light
-    ? ["#5b5b97", "#777aae", "#a5a2c4", "#515880", "#434867", "#676383"]
-    : ["#1d1e3b", "#2a2950", "#55416b", "#333858", "#262942", "#43405b"];
+export function buildScenery(ctx: CanvasRenderingContext2D, width: number, height: number, light: boolean) {
+  const ground = Math.floor(height * .84);
+  const [sky, dusk, mist, hill, woods, grass] = light
+    ? ["#5c6382", "#837a9a", "#b798a4", "#665f7b", "#425b60", "#355655"]
+    : ["#212540", "#393754", "#655673", "#44435f", "#2b414b", "#233b44"];
   const block = (color: string, x: number, y: number, w: number, h: number) => {
     ctx.fillStyle = color;
     ctx.fillRect(x, y, w, h);
   };
-
   let seed = 5637;
   const random = () => {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     return seed / 4294967296;
   };
 
-  block(colors[0], 0, 0, width, height);
-  block(colors[1], 0, Math.floor(height * .31), width, height);
-  block(colors[2], 0, Math.floor(height * .61), width, height);
-  for (let i = 0; i < Math.ceil(width / 3); i++) {
-    const x = Math.floor(random() * width);
-    const y = Math.floor(random() * height * .63);
-    block(i % 5 === 0 ? "#ffe2aa" : "#b8b7dc", x, y, i % 11 === 0 ? 2 : 1, 1);
+  const horizon = Math.floor(height * .40);
+  block(sky, 0, 0, width, height);
+  block(dusk, 0, horizon, width, height);
+  block(mist, 0, Math.floor(height * .65), width, height);
+  for (let i = 0; i < Math.ceil(width / 4); i++) {
+    block(i % 8 === 0 ? "#ffe7bb" : "#a9a3bd",
+      Math.floor(random() * width), Math.floor(random() * horizon), 1, 1);
   }
 
-  const planetX = Math.round(width * .73);
-  const planetY = Math.round(height * .29);
-  const radius = Math.min(22, Math.floor(height * .17));
+  const moonX = Math.round(width * .71);
+  const moonY = Math.round(height * .28);
+  const radius = Math.min(14, Math.floor(height * .14));
   for (let y = -radius; y <= radius; y++) {
-    const half = Math.floor(Math.sqrt(radius * radius - y * y));
-    block(y < 3 ? "#f5bc97" : y < 11 ? "#e69284" : "#c96e7e",
-      planetX - half, planetY + y, half * 2 + 1, 1);
-  }
-  for (let i = -radius; i <= radius; i++) {
-    const y = planetY + Math.floor(i * .19) + 4;
-    block("#ffe2a6", planetX + i * 2, y, 2, 1);
+    const outside = Math.floor(Math.sqrt(radius * radius - y * y));
+    const innerY = y + Math.round(radius * .27);
+    const inside = Math.floor(Math.sqrt(Math.max(0, radius * radius - innerY * innerY)));
+    const end = Math.min(moonX + outside + 1, moonX + Math.round(radius * .55) - inside);
+    block("#ffe6ad", moonX - outside, moonY + y, Math.max(0, end - (moonX - outside)), 1);
   }
 
   for (let x = 0; x < width; x += 3) {
-    const distance = Math.min(x % 61, 61 - (x % 61));
-    const far = ground - 12 - Math.floor(distance * .46);
-    const near = ground - 4 - Math.floor((1 + Math.sin(x * .18)) * 3);
-    block(colors[3], x, far, 3, ground - far);
-    block(colors[4], x, near, 3, ground - near);
+    const slope = Math.min(x % 91, 91 - (x % 91));
+    const crest = ground - 16 - Math.round(slope * .54);
+    block(hill, x, crest, 3, ground - crest);
+  }
+  for (let x = -5; x < width; x += 8 + Math.floor(random() * 10)) {
+    const size = 12 + Math.floor(random() * 25);
+    for (let y = 0; y < size; y += 2) {
+      const span = 1 + Math.floor(y * .18);
+      block(woods, x - span, ground - size + y, span * 2 + 1, 2);
+    }
   }
 
-  const base = Math.floor(width * .19);
-  block("#22263b", base - 4, ground - 18, 34, 18);
-  block("#394461", base, ground - 23, 24, 5);
-  block("#7984a0", base + 2, ground - 24, 20, 2);
-  block("#1b2339", base + 3, ground - 16, 19, 7);
-  for (let i = 0; i < 3; i++) block("#82dcce", base + 5 + i * 6, ground - 14, 4, 3);
-  block("#737c99", base + 24, ground - 37, 2, 19);
-  block("#d8a6a5", base + 20, ground - 34, 10, 2);
-  block("#f5cf9a", base + 24, ground - 38, 2, 2);
-
-  block(colors[5], 0, ground, width, height - ground);
-  block("#877a94", 0, ground, width, 2);
-  for (let x = 2; x < width; x += 4) {
-    const y = ground + 5 + Math.floor(random() * Math.max(1, height - ground - 5));
-    block(x % 3 ? colors[4] : "#95899f", x, y, x % 3 + 1, 1);
+  // Small temple with a stepped pediment, columns and colored stone.
+  const center = Math.round(width * .34);
+  const templeHeight = Math.min(33, Math.floor(height * .31));
+  const lintel = ground - templeHeight;
+  for (let y = 0; y < 7; y++) block("#deb997", center - 3 - y * 2, lintel + y, 7 + y * 4, 1);
+  block("#e8cba4", center - 18, lintel + 7, 37, 3);
+  block("#333748", center - 14, lintel + 10, 29, templeHeight - 11);
+  for (let x = center - 14; x <= center + 13; x += 9) {
+    block("#c9a588", x, lintel + 10, 3, templeHeight - 11);
+    block("#ebc6a0", x, lintel + 11, 1, templeHeight - 13);
   }
-  return { layer, ground };
+  block("#b68f7e", center - 18, ground - 2, 37, 2);
+  block(grass, 0, ground, width, height - ground);
+  block("#598071", 0, ground, width, 1);
+  for (let x = 0; x < width; x += 3) {
+    const y = ground + 2 + Math.floor(random() * Math.max(1, height - ground - 2));
+    block(x % 5 === 0 ? "#86a088" : woods, x, y, 2, 1);
+  }
 }

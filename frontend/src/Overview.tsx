@@ -12,8 +12,8 @@ const initial: Snapshot = { events: null, reminders: null, channel: null, servic
 const eventLabels: Record<string, string> = { sent: "Enviado", pending: "En cola", sending: "Enviando", retry: "Reintentando", not_requested: "Registrado" };
 const origins: Record<string, string> = { reminders: "Recordatorios", manual: "Envío directo" };
 
-export function Overview({ navigate, reduced, light }: {
-  navigate: Navigate; reduced: boolean; light: boolean;
+export function Overview({ navigate, light }: {
+  navigate: Navigate; light: boolean;
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot>(initial);
   const [refresh, setRefresh] = useState(0);
@@ -52,7 +52,7 @@ export function Overview({ navigate, reduced, light }: {
     <div className="overview-intro"><div><p className="eyebrow"><span/>TU ESPACIO PERSONAL</p><h1>Todo en un solo lugar<span>.</span></h1><p>Menos pestañas. Más cosas pasando por ti.</p></div><button className="subtle-button" disabled={refreshing} onClick={() => setRefresh(value => value + 1)}><Icon name="bolt" size={16}/>{refreshing ? "Sincronizando…" : "Sincronizar"}</button></div>
     <section className="command-hero">
       <div className="hero-copy"><StatusTag tone={channelLive ? "good" : "neutral"}>{channelLive ? "WhatsApp en marcha" : snapshot.channel?.configured ? "WhatsApp iniciando" : "Artemis platform - Admin Console"}</StatusTag><p className="hero-kicker">ARTEMIS / EN TU FRECUENCIA</p><h2 className="hero-quote">«Cualquier forma, sensación, percepción, formación mental o conciencia —pasada, futura o presente, interna o externa, burda o sutil— debe ser vista como realmente es con sabiduría correcta: "Esto no es mío, esto no soy yo, esto no es mi ser"»</h2><p>Conecta tus servicios, programa lo importante y deja que los avisos te encuentren.</p><div className="hero-actions"><button className="primary" onClick={() => navigate("Tools", "reminders")}><Icon name="clock" size={18}/>Crear recordatorio<Icon name="arrow" size={18}/></button><button className="hero-link" onClick={() => navigate("Skills")}>Ver habilidades<Icon name="arrow" size={16}/></button></div><div className="hero-meta"><span className="signal-bars"><i/><i/><i/><i/></span>UN PANEL. TUS REGLAS.</div></div>
-      <PixelScene reduced={reduced} light={light}/>
+      <PixelScene light={light}/>
     </section>
     <section className="metric-grid" aria-label="Resumen del sistema">{metrics.map(metric => <button key={metric.label} className={`metric-card ${metric.tone}`} onClick={() => navigate(metric.view, metric.tool)}><div className="metric-top"><span className="metric-icon"><Icon name={metric.icon}/></span><Icon name="arrow" size={16}/></div><strong>{metric.value}</strong><span className="metric-label">{metric.label}</span><small>{metric.note}</small></button>)}</section>
     <div className="dashboard-columns">
