@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import TypedDict
 from uuid import UUID, uuid4
 
@@ -18,6 +19,12 @@ class TurnPayload(TypedDict):
     approval_ids: list[str]
 
 
+@dataclass(frozen=True)
+class BridgeSettings:
+    enabled: bool
+    url: str
+
+
 class BridgeStore:
     def __init__(self, dsn: str) -> None:
         self.dsn = dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
@@ -25,6 +32,11 @@ class BridgeStore:
     async def start(self) -> None:
         self.pool = await asyncpg.create_pool(self.dsn, min_size=1, max_size=5)
         await self.pool.execute("""
+            CREATE TABLE IF NOT EXISTS bridge_settings (
+                singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+                enabled boolean NOT NULL,
+                url text NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS bridge_bot_providers (
                 channel text NOT NULL, bot text NOT NULL, providers text[] NOT NULL,
                 PRIMARY KEY (channel, bot)
@@ -53,6 +65,16 @@ class BridgeStore:
                 lease uuid, delivered_at timestamptz
             );
         """)
+
+    async def settings(self) -> BridgeSettings | None:
+        row = await self.pool.fetchrow("SELECT enabled, url FROM bridge_settings")
+        return BridgeSettings(row["enabled"], row["url"]) if row else None
+
+    async def save_settings(self, settings: BridgeSettings) -> None:
+        await self.pool.execute("""
+            INSERT INTO bridge_settings (enabled, url) VALUES ($1,$2)
+            ON CONFLICT (singleton) DO UPDATE SET enabled=excluded.enabled, url=excluded.url
+        """, settings.enabled, settings.url)
 
     async def enqueue(
         self, id: UUID, channel: str, bot: str, conversation: UUID, payload: TurnPayload,

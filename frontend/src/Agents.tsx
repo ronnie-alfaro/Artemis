@@ -1,4 +1,5 @@
 import { useEffect, useState, type DragEvent } from "react";
+import { ConversationBridgeSettings } from "./ConversationBridgeSettings";
 import { ConversationBridgeConfiguration } from "./ConversationBridgeConfiguration";
 import { PageHeader as Header, List } from "./ui";
 type Props = { apiFetch: (path: string, init?: RequestInit) => Promise<Response> };
@@ -9,7 +10,7 @@ type WhatsAppChannelStatus = {
   last_error: string | null;
 };
 
-function ChannelAgent({ apiFetch, channel }: Props & { channel: "whatsapp" | "telegram" }) {
+function ChannelAgent({ apiFetch, channel, bridgeRevision }: Props & { channel: "whatsapp" | "telegram"; bridgeRevision: number }) {
   const channelLabel = channel === "telegram" ? "Telegram" : "WhatsApp";
   const [whatsapp, setWhatsApp] = useState<WhatsAppChannelStatus | null>(null);
   const [availableSkills, setAvailableSkills] = useState<string[]>([]);
@@ -97,9 +98,15 @@ function ChannelAgent({ apiFetch, channel }: Props & { channel: "whatsapp" | "te
     "codex.assistant": "Asistencia y herramientas · Codex",
   }[skill] ?? skill);
   const skillsChanged = boundSkills.length !== savedSkills.length || boundSkills.some(skill => !savedSkills.includes(skill));
-  return <><Header eyebrow="IDENTIDADES Y CONVERSACIONES" title={channelLabel}/><List rows={rows}/>{whatsapp?.configured && <section className="panel skill-binding"><div className="persona-editor"><label htmlFor={`persona-${channel}`}>PERSONA</label><p>Define la personalidad, el tono y cómo quieres que actúe este bot. Las habilidades asignadas determinan lo que puede utilizar.</p><textarea id={`persona-${channel}`} aria-label={`PERSONA de ${channelLabel}`} maxLength={8000} value={persona} onChange={event => setPersona(event.target.value)} placeholder="Eres Artemis: cercano, ingenioso y claro. Respondes de forma breve y ayudas a usar la app…"/><button className="primary" disabled={!persona.trim()} onClick={() => void savePersona()}>Guardar PERSONA</button>{personaStatus && <p role="status">{personaStatus}</p>}</div><ConversationBridgeConfiguration key={whatsapp.agent_name} apiFetch={apiFetch} channel={channel}/><div className="binding-lanes"><div className="binding-lane" onDragOver={event => event.preventDefault()} onDrop={event => moveSkill(event, "available")}><strong>Habilidades disponibles</strong>{availableSkills.filter(skill => !boundSkills.includes(skill)).map(skill => <button draggable key={skill} onClick={() => toggleSkill(skill)} onDragStart={event => event.dataTransfer.setData("text/plain", skill)}>{skillLabel(skill)}</button>)}</div><div className="binding-lane agent-drop" onDragOver={event => event.preventDefault()} onDrop={event => moveSkill(event, "bound")}><strong>Asignadas al agente</strong><button disabled>Conversación natural</button>{boundSkills.filter(skill => skill !== "assistant.status").map(skill => <button draggable key={skill} onClick={() => toggleSkill(skill)} onDragStart={event => event.dataTransfer.setData("text/plain", skill)}>{skillLabel(skill)}</button>)}</div></div><div className="binding-save"><span role="status">{skillSaveStatus ?? (skillsChanged ? "Hay cambios sin guardar." : "Todas las asignaciones están guardadas.")}</span><button className="primary" onClick={saveSkills} disabled={!skillsChanged || savingSkills}>{savingSkills ? "Guardando…" : "Guardar habilidades asignadas"}</button></div></section>}<p className="hint">Arrastra una habilidad o púlsala para asignarla. Guarda los cambios para que el bot las use automáticamente en {channelLabel}.</p></>;
+  return <><Header eyebrow="IDENTIDADES Y CONVERSACIONES" title={channelLabel}/><List rows={rows}/>{whatsapp?.configured && <section className="panel skill-binding"><div className="persona-editor"><label htmlFor={`persona-${channel}`}>PERSONA</label><p>Define la personalidad, el tono y cómo quieres que actúe este bot. Las habilidades asignadas determinan lo que puede utilizar.</p><textarea id={`persona-${channel}`} aria-label={`PERSONA de ${channelLabel}`} maxLength={8000} value={persona} onChange={event => setPersona(event.target.value)} placeholder="Eres Artemis: cercano, ingenioso y claro. Respondes de forma breve y ayudas a usar la app…"/><button className="primary" disabled={!persona.trim()} onClick={() => void savePersona()}>Guardar PERSONA</button>{personaStatus && <p role="status">{personaStatus}</p>}</div><ConversationBridgeConfiguration key={`${whatsapp.agent_name}:${bridgeRevision}`} apiFetch={apiFetch} channel={channel}/><div className="binding-lanes"><div className="binding-lane" onDragOver={event => event.preventDefault()} onDrop={event => moveSkill(event, "available")}><strong>Habilidades disponibles</strong>{availableSkills.filter(skill => !boundSkills.includes(skill)).map(skill => <button draggable key={skill} onClick={() => toggleSkill(skill)} onDragStart={event => event.dataTransfer.setData("text/plain", skill)}>{skillLabel(skill)}</button>)}</div><div className="binding-lane agent-drop" onDragOver={event => event.preventDefault()} onDrop={event => moveSkill(event, "bound")}><strong>Asignadas al agente</strong><button disabled>Conversación natural</button>{boundSkills.filter(skill => skill !== "assistant.status").map(skill => <button draggable key={skill} onClick={() => toggleSkill(skill)} onDragStart={event => event.dataTransfer.setData("text/plain", skill)}>{skillLabel(skill)}</button>)}</div></div><div className="binding-save"><span role="status">{skillSaveStatus ?? (skillsChanged ? "Hay cambios sin guardar." : "Todas las asignaciones están guardadas.")}</span><button className="primary" onClick={saveSkills} disabled={!skillsChanged || savingSkills}>{savingSkills ? "Guardando…" : "Guardar habilidades asignadas"}</button></div></section>}<p className="hint">Arrastra una habilidad o púlsala para asignarla. Guarda los cambios para que el bot las use automáticamente en {channelLabel}.</p></>;
 }
 
 export function Agents(props: Props) {
-  return <><ChannelAgent {...props} channel="whatsapp"/><ChannelAgent {...props} channel="telegram"/></>;
+  const [bridgeRevision, setBridgeRevision] = useState(0);
+  return <>
+    <ConversationBridgeSettings apiFetch={props.apiFetch}
+      onSaved={() => setBridgeRevision(revision => revision + 1)}/>
+    <ChannelAgent {...props} channel="whatsapp" bridgeRevision={bridgeRevision}/>
+    <ChannelAgent {...props} channel="telegram" bridgeRevision={bridgeRevision}/>
+  </>;
 }

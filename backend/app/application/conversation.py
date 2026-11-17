@@ -49,6 +49,7 @@ class ConversationAgent:
     ) -> None:
         self.queue, self.registry, self.approvals = queue, registry, approvals
         self.bridge_store: BridgeStore | None = None
+        self.bridge_enabled: Callable[[], Awaitable[bool]] | None = None
 
     def catalog(self, allowed: list[str]) -> list[dict[str, str]]:
         return [
@@ -65,7 +66,8 @@ class ConversationAgent:
     async def run(self, request: AgentRequest) -> AgentResponse:
         message = request.message
         try:
-            if self.bridge_store and message.channel.agent_name:
+            if (self.bridge_store and self.bridge_enabled and message.channel.agent_name
+                    and await self.bridge_enabled()):
                 await self.bridge_store.enqueue(
                     message.id, message.channel.name, message.channel.agent_name,
                     message.conversation_id, {

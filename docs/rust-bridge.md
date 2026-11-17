@@ -35,12 +35,18 @@ Antigravity conservan sus workers y sus puntos de entrada explícitos.
    Usa el flujo de autenticación de la versión instalada. Los workers de desarrollo
    mantienen sus propias credenciales, estado y permisos.
 3. Inicia y verifica el servicio con
-   `docker compose up -d --build --wait artemis-bridge`. Configura
-   `ARTEMIS_BRIDGE_URL=http://artemis-bridge:8091` en el entorno activo y recrea
-   API y web. Verifica el primer turno de cada bot y su proveedor en la UI antes
-   de considerar activada la migración.
+   `docker compose up -d --build --wait artemis-bridge`. En **Agentes → Bridge
+   conversacional**, selecciona la dirección del servicio y activa el bridge. La
+   configuración se guarda en PostgreSQL y se aplica sin reiniciar la API.
+   Verifica el primer turno de cada bot y su proveedor desde la UI.
 
-Con la URL vacía, los bots siguen usando el worker de conversación anterior. Los trabajos
+El panel ofrece la dirección interna de Compose por defecto. El operador puede
+autorizar otras direcciones de confianza mediante `ARTEMIS_BRIDGE_ALLOWED_URLS`,
+separadas por comas. La selección y la activación se administran desde el panel.
+Una URL heredada en `ARTEMIS_BRIDGE_URL` se usa como punto de partida hasta guardar
+la primera configuración. Con el bridge desactivado, los mensajes nuevos vuelven
+al worker anterior y las entregas pendientes del bridge siguen procesándose.
+Los trabajos
 anteriores en archivos mantienen sus mecanismos de ejecución y entrega mientras se vacía
 la cola. El servicio Rust carece de acceso a la red de PostgreSQL y a los directorios del
 proyecto. Su puerto HTTP se comparte con la API por la red interna de Compose.

@@ -5,10 +5,20 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, StringConstraints
 
 from app.application.rust_bridge import RustBridge
+from app.infrastructure.conversation_bridge import BridgeSettings
 
 router = APIRouter(prefix="/api/v1/conversation-bridge", tags=["conversation-bridge"])
 Channel = Literal["whatsapp", "telegram"]
 ProviderId = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,31}$")]
+
+
+class SettingsInput(BaseModel):
+    enabled: bool
+    url: str = Field(min_length=1, max_length=1024)
+
+
+class SettingsView(SettingsInput):
+    allowed_urls: tuple[str, ...]
 
 
 class Routing(BaseModel):
@@ -32,6 +42,24 @@ def current_bot(bridge: RustBridge, channel: Channel) -> str:
     if connection is None:
         raise HTTPException(404, "Este canal no tiene un bot configurado.")
     return connection.agent_name
+
+
+@router.get("/settings")
+async def get_settings(request: Request) -> SettingsView:
+    bridge = bridge_for(request)
+    settings = await bridge.settings()
+    return SettingsView(
+        enabled=settings.enabled, url=settings.url, allowed_urls=bridge.allowed_urls,
+    )
+
+
+@router.put("/settings")
+async def save_settings(request: Request, value: SettingsInput) -> SettingsView:
+    bridge = bridge_for(request)
+    if value.url not in bridge.allowed_urls:
+        raise HTTPException(422, "Selecciona una dirección autorizada para el bridge.")
+    await bridge.store.save_settings(BridgeSettings(value.enabled, value.url))
+    return SettingsView(**value.model_dump(), allowed_urls=bridge.allowed_urls)
 
 
 @router.get("/providers")
@@ -61,15 +89,14 @@ async def probe(request: Request, provider: ProviderId) -> dict[str, bool]:
     if provider not in await bridge.store.catalog() or provider not in await bridge.installed():
         raise HTTPException(404, "El adaptador CLI no está disponible.")
     try:
-        response = await bridge.client.post("/v1/decide", json={
+        response = await bridge.request("POST", "/v1/decide", timeout=55, payload={
             "providers": [provider],
             "prompt": (
                 'Devuelve únicamente este JSON: {"reply":"ok","capability":"","command":""}.'
             ),
             "capabilities": [],
             "actions_remaining": 0,
-        }, timeout=55)
-        response.raise_for_status()
+        })
         available = response.json().get("provider") == provider
     except (httpx.HTTPError, ValueError):
         available = False

@@ -8,6 +8,7 @@ services:
       - ${ARTEMIS_ANTIGRAVITY_STATE_DIR:-/var/lib/artemis-antigravity}/queue:/data/antigravity
     environment:
       ARTEMIS_BRIDGE_URL: ${ARTEMIS_BRIDGE_URL:-}
+      ARTEMIS_BRIDGE_ALLOWED_URLS: ${ARTEMIS_BRIDGE_ALLOWED_URLS:-}
       ARTEMIS_MEMORY_DIR: /data/memory
       ARTEMIS_VISION_URL: ${ARTEMIS_VISION_URL:-}
       ARTEMIS_VISION_MODEL: ${ARTEMIS_VISION_MODEL:-}

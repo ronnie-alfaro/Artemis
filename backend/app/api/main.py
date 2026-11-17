@@ -392,22 +392,29 @@ def create_app() -> FastAPI:
             orchestrator.handle,
             orchestrator.approvals,  # type: ignore[attr-defined]
         )
-        bridge_url = os.getenv("ARTEMIS_BRIDGE_URL")
+        bridge_url = os.getenv("ARTEMIS_BRIDGE_URL", "").strip().rstrip("/")
+        allowed_bridge_urls = tuple(dict.fromkeys(
+            url.strip().rstrip("/") for url in
+            os.getenv("ARTEMIS_BRIDGE_ALLOWED_URLS", "").split(",") if url.strip()
+        ))
         bridge = None
-        if bridge_url and database_url:
+        if database_url:
             bridge_store = BridgeStore(database_url)
             await bridge_store.start()
             registry: AgentRegistry = orchestrator.registry  # type: ignore[attr-defined]
             conversation_agent = registry.get("conversation")
             assert isinstance(conversation_agent, ConversationAgent)
             conversation_agent.bridge_store = bridge_store
-            if orchestrator.skill_sessions:
-                orchestrator.skill_sessions.bridge_commands = True
             bridge = RustBridge(
-                bridge_store, bridge_url, {"whatsapp": runtime, "telegram": telegram},
+                bridge_store, bridge_url or "http://artemis-bridge:8091",
+                {"whatsapp": runtime, "telegram": telegram},
                 orchestrator.handle,
                 orchestrator.approvals.pending_for_conversation,  # type: ignore[attr-defined]
+                allowed_urls=allowed_bridge_urls, initially_enabled=bool(bridge_url),
             )
+            conversation_agent.bridge_enabled = bridge.enabled
+            if orchestrator.skill_sessions:
+                orchestrator.skill_sessions.bridge_commands = bridge.enabled
         app.state.conversation_bridge = bridge
         await runtime.start()
         await telegram.start()
@@ -473,8 +480,9 @@ def create_app() -> FastAPI:
             if bridge:
                 await bridge.close()
                 conversation_agent.bridge_store = None
+                conversation_agent.bridge_enabled = None
                 if orchestrator.skill_sessions:
-                    orchestrator.skill_sessions.bridge_commands = False
+                    orchestrator.skill_sessions.bridge_commands = None
             await conversation_worker.stop()
             if images:
                 await images.stop()

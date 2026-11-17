@@ -17,7 +17,7 @@ from app.application.conversation import _COMMAND_CONFIRM, _CONFIRM
 from app.application.whatsapp import WhatsAppAgentRuntime
 from app.application.whatsapp_formatting import whatsapp_chunks
 from app.domain.models import Channel, ChatResponse, IncomingMessage
-from app.infrastructure.conversation_bridge import BridgeStore, TurnPayload
+from app.infrastructure.conversation_bridge import BridgeSettings, BridgeStore, TurnPayload
 
 logger = logging.getLogger(__name__)
 BASIC = "El asistente está en modo básico. Escribe «ayuda» para ver los comandos disponibles."
@@ -50,13 +50,39 @@ class RustBridge:
         self, store: BridgeStore, url: str, controllers: dict[str, ChannelController],
         handle: Callable[[IncomingMessage], Awaitable[ChatResponse]],
         pending_approvals: Callable[..., list[Any]],
+        *,
+        allowed_urls: tuple[str, ...] = (),
+        initially_enabled: bool = False,
     ) -> None:
         self.store = store
-        self.client = httpx.AsyncClient(base_url=url, timeout=415)
+        self.default_settings = BridgeSettings(initially_enabled, url)
+        self.allowed_urls = (url, *allowed_urls)
+        self.client = httpx.AsyncClient(timeout=415, trust_env=False)
         self.controllers = controllers
         self.handle = handle
         self.pending_approvals = pending_approvals
         self.tasks: list[asyncio.Task[None]] = []
+
+    async def settings(self) -> BridgeSettings:
+        saved = await self.store.settings()
+        if saved is None:
+            return self.default_settings
+        if saved.url not in self.allowed_urls:
+            return BridgeSettings(False, self.default_settings.url)
+        return saved
+
+    async def enabled(self) -> bool:
+        return (await self.settings()).enabled
+
+    async def request(
+        self, method: str, path: str, *, timeout: float, payload: dict[str, Any] | None = None,
+    ) -> httpx.Response:
+        settings = await self.settings()
+        response = await self.client.request(
+            method, settings.url + path, timeout=timeout, json=payload,
+        )
+        response.raise_for_status()
+        return response
 
     def start(self) -> None:
         self.tasks = [
@@ -91,8 +117,7 @@ class RustBridge:
 
     async def installed(self) -> dict[str, str]:
         try:
-            response = await self.client.get("/v1/providers", timeout=3)
-            response.raise_for_status()
+            response = await self.request("GET", "/v1/providers", timeout=3)
             return {item["id"]: item["status"] for item in response.json()["providers"]}
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             return {}
@@ -135,13 +160,12 @@ class RustBridge:
             "actions_remaining": actions_remaining,
         }
         try:
-            response = await self.client.post("/v1/decide", json={
+            response = await self.request("POST", "/v1/decide", timeout=415, payload={
                 "providers": order,
                 "prompt": INSTRUCTIONS + "\n\n" + json.dumps(context, ensure_ascii=False),
                 "capabilities": [skill["capability"] for skill in skills],
                 "actions_remaining": actions_remaining,
             })
-            response.raise_for_status()
             outcome = Outcome.model_validate_json(response.content)
         except (httpx.HTTPError, ValidationError):
             outcome = Outcome()
