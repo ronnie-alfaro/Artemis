@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+import json
+import sys
+
+prompt = json.load(sys.stdin)["prompt"]
+if "Matrix encontrado" in prompt:
+    sys.exit(1)
+print(json.dumps({"capability":"seerr.media","command":"busca Matrix","reply":""}))

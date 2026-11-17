@@ -23,6 +23,7 @@ from app.domain.models import (
     IncomingMessage,
 )
 from app.domain.whatsapp import DEFAULT_PERSONA
+from app.infrastructure.conversation_bridge import BridgeStore
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class ConversationAgent:
         approvals: ApprovalStore,
     ) -> None:
         self.queue, self.registry, self.approvals = queue, registry, approvals
+        self.bridge_store: BridgeStore | None = None
 
     def catalog(self, allowed: list[str]) -> list[dict[str, str]]:
         return [
@@ -63,6 +65,28 @@ class ConversationAgent:
     async def run(self, request: AgentRequest) -> AgentResponse:
         message = request.message
         try:
+            if self.bridge_store and message.channel.agent_name:
+                await self.bridge_store.enqueue(
+                    message.id, message.channel.name, message.channel.agent_name,
+                    message.conversation_id, {
+                        "text": message.content,
+                        "image_context": message.image_context,
+                        "persona": message.channel.assistant_persona or DEFAULT_PERSONA,
+                        "greeting": message.channel.assistant_greeting or "",
+                        "skills": self.catalog([
+                            c for c in message.channel.allowed_capabilities
+                            if c not in {"codex.assistant", "antigravity.assistant"}
+                        ]),
+                        "approval_ids": [
+                            str(item.id) for item in
+                            self.approvals.pending_for_conversation(message.conversation_id)
+                        ],
+                    },
+                )
+                return AgentResponse(result=AgentResult(
+                    agent_name="conversation", content="",
+                    metadata={"execution_id": str(request.execution_id), "deferred": "true"},
+                ))
             self.queue.submit(
                 message.id,
                 message.conversation_id,

@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+prompt = json.load(sys.stdin)["prompt"]
+with tempfile.TemporaryDirectory(prefix="codex-") as directory:
+    schema = Path(directory, "schema.json")
+    output = Path(directory, "answer.json")
+    schema.write_text(json.dumps({
+        "type": "object",
+        "properties": {key: {"type": "string"} for key in ("reply", "capability", "command")},
+        "required": ["reply", "capability", "command"],
+        "additionalProperties": False,
+    }))
+    subprocess.run([
+        "/cli/codex/codex", "exec", "--ignore-user-config", "--skip-git-repo-check",
+        "--ephemeral", "-s", "read-only", "-c", 'approval_policy="never"',
+        "-c", "features.shell_tool=false", "--output-schema", str(schema),
+        "--output-last-message", str(output), "-",
+    ], input=prompt, text=True, stdout=subprocess.DEVNULL, check=True,
+        env={**os.environ, "CODEX_HOME": "/state/codex"})
+    if output.stat().st_size > 65536:
+        raise ValueError("Codex response exceeded limit")
+    print(output.read_text())
