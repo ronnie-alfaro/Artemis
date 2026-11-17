@@ -90,9 +90,26 @@ export function ConversationBridgeConfiguration({ apiFetch, channel }: Props) {
 
   const names = new Map(catalog?.providers.map(provider => [provider.id, provider.label]));
   return <div className="persona-editor">
-    <strong>Proveedores de conversación</strong>
+    <h2>LLM de {channel === "telegram" ? "Telegram" : "WhatsApp"}</h2>
     {catalog && loaded && <>
-      <p>El primero es el preferido. Los siguientes sirven de respaldo. Sin proveedores activos, el bot usa el modo básico.</p>
+      <div>
+        <label htmlFor={`bridge-primary-${channel}`}>LLM principal</label>{" "}
+        <select id={`bridge-primary-${channel}`} value={order[0] ?? ""} disabled={busy}
+          onChange={event => {
+            const id = event.target.value;
+            setOrder(id ? [id, ...order.filter(item => item !== id)].slice(0, 8) : []);
+          }}>
+          <option value="">Solo modo básico</option>
+          {catalog.providers.map(provider => <option key={provider.id} value={provider.id}>
+            {provider.label}
+          </option>)}
+        </select>{" "}
+        <button className="primary" disabled={busy}
+          onClick={() => void update(`/routing/${channel}`, "PUT", { providers: order })}>
+          Guardar selección
+        </button>
+      </div>
+      <p>El bot prueba los siguientes proveedores en orden si falla el principal.</p>
       {last && <p>Último proveedor utilizado: {names.get(last) ?? last}</p>}
       <ol>
         {order.map((id, index) => <li key={id}>
@@ -112,7 +129,7 @@ export function ConversationBridgeConfiguration({ apiFetch, channel }: Props) {
           {catalog.providers.filter(item => !order.includes(item.id)).map(item =>
             <option key={item.id} value={item.id}>{item.label}</option>)}
         </select>{" "}
-        <button className="primary" disabled={busy} onClick={() => void update(`/routing/${channel}`, "PUT", { providers: order })}>Guardar orden</button>
+
       </div>
       <details>
         <summary>Registrar proveedor CLI</summary>
