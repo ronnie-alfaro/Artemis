@@ -57,10 +57,14 @@ services:
     restart: unless-stopped
     networks: [bridge-internal, bridge-egress]
     read_only: true
-    tmpfs: [/tmp:size=128m,mode=1777]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     volumes:
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 134217728
+          mode: 1023
       - ${ARTEMIS_BRIDGE_ADAPTERS_DIR:-/var/lib/artemis-bridge/adapters}:/providers:ro
       - ${ARTEMIS_BRIDGE_STATE_DIR:-/var/lib/artemis-bridge/state}:/state
       - ${ARTEMIS_BRIDGE_CODEX_BIN_DIR:-/usr/local/lib/artemis-codex/bin}:/cli/codex:ro
