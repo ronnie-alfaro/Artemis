@@ -1,7 +1,7 @@
 import { ChannelConfiguration } from "./ChannelConfiguration";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { Agents } from "./Agents";
+import { Agents, type AgentChannel } from "./Agents";
 import { Skills } from "./Skills";
 import { Brain } from "./Brain";
 import { Tools } from "./Tools";
@@ -15,7 +15,7 @@ import "./pixel/theme.css";
 
 type View = "Overview" | "Agents" | "Skills" | "Tools" | "Channels" | "Settings" | "Brain";
 type ToolId = "notifications" | "webhooks" | "reminders";
-type Route = { view: View; tool?: ToolId };
+type Route = { view: View; tool?: ToolId; channel?: AgentChannel };
 type Preferences = { theme: "dark" | "light"; motion: "full" | "reduced"; density: "comfortable" | "compact" };
 const navigation: { id: View; label: string; icon: IconName; path: string; description: string }[] = [
   { id: "Overview", label: "Inicio", icon: "home", path: "inicio", description: "Tus herramientas, de un vistazo" },
@@ -27,9 +27,14 @@ const navigation: { id: View; label: string; icon: IconName; path: string; descr
   { id: "Settings", label: "Ajustes", icon: "settings", path: "ajustes", description: "Haz que este espacio sea tuyo" },
 ];
 function readRoute(): Route {
-  const [path, tool] = window.location.hash.replace(/^#\/?/, "").split("/");
+  const [path, detail] = window.location.hash.replace(/^#\/?/, "").split("/");
   const match = navigation.find(item => item.path === path);
-  return { view: match?.id ?? "Overview", ...(match?.id === "Tools" && ["notifications", "webhooks", "reminders"].includes(tool) ? { tool: tool as ToolId } : {}) };
+  const view = match?.id ?? "Overview";
+  if (view === "Tools" && (detail === "notifications" || detail === "webhooks" || detail === "reminders")) {
+    return { view, tool: detail };
+  }
+  if (view === "Agents" && (detail === "whatsapp" || detail === "telegram")) return { view, channel: detail };
+  return { view };
 }
 function readPreferences(): Preferences {
   try {
@@ -42,16 +47,46 @@ function Clock() {
   useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   return <time className="live-clock" dateTime={now.toISOString()}><span>{now.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}</span>{now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>;
 }
-function ChannelCard({ onAgents, provider }: { onAgents: () => void; provider: "whatsapp" | "telegram" }) {
+function ChannelCard({ onAgents, provider }: { onAgents: (channel: AgentChannel) => void; provider: AgentChannel }) {
   const label = provider === "telegram" ? "Telegram" : "WhatsApp";
   const [revision, setRevision] = useState(0);
   const [channel, setChannel] = useState<{ configured: boolean; running: boolean; agent_name: string | null; last_error: string | null } | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => { let active = true; void apiFetch(`/api/v1/channels/${provider}`).then(async response => { if (!response.ok) throw new Error("status"); const value = await response.json(); if (active) setChannel(value); }).catch(() => { if (active) setError(true); }); return () => { active = false; }; }, [provider, revision]);
-  return <section className="panel channel-card"><div className="channel-emblem"><img src={`/channels/${provider}.svg`} alt={`Logo de ${label}`} width={48} height={48}/></div><div className="channel-copy"><div className="section-heading"><h2>{label}</h2><StatusTag tone={channel?.running ? "good" : "neutral"}>{error ? "Sin verificar" : !channel ? "Consultando…" : channel.running ? "En marcha" : channel.configured ? "Iniciando" : "Sin configurar"}</StatusTag></div><p>{provider === "telegram" ? "Conecta tu bot y conversa con las habilidades de Artemis en un chat privado." : "Tu acceso directo a las habilidades, las notificaciones y los recordatorios de Artemis."}</p><div className="channel-facts"><div><span>AGENTE</span><strong>{channel?.agent_name ?? "Sin asignar"}</strong></div><div><span>CONVERSACIÓN</span><strong>{channel?.configured ? "Personal" : "Pendiente de configuración"}</strong></div></div>{channel?.last_error && <p role="status">{channel.last_error}</p>}{error && <p role="alert">No se pudo comprobar el canal. Inténtalo de nuevo más tarde.</p>}<ChannelConfiguration provider={provider} onApplied={() => setRevision(value => value + 1)}/><button className="primary" onClick={onAgents}>Configurar mi agente<Icon name="arrow" size={16}/></button></div></section>;
+
+  return <section className="panel channel-card">
+    <div className="channel-heading">
+      <div className="channel-emblem"><img src={`/channels/${provider}.svg`} alt="" width={48} height={48}/></div>
+      <div>
+        <h2>{label}</h2>
+        <StatusTag tone={channel?.running ? "good" : "neutral"}>
+          {error ? "Sin verificar" : !channel ? "Consultando…" : channel.running ? "En marcha" : channel.configured ? "Iniciando" : "Sin configurar"}
+        </StatusTag>
+      </div>
+    </div>
+    <div className="channel-copy">
+      <p>{provider === "telegram" ? "Conecta tu bot y conversa con las habilidades de Artemis en un chat privado." : "Tu acceso directo a las habilidades, las notificaciones y los recordatorios de Artemis."}</p>
+      <div className="channel-facts">
+        <div><span>AGENTE</span><strong>{channel?.agent_name ?? "Sin asignar"}</strong></div>
+        <div><span>CONVERSACIÓN</span><strong>{channel?.configured ? "Personal" : "Pendiente de configuración"}</strong></div>
+      </div>
+      {error && <p role="alert">No se pudo comprobar el canal. Inténtalo de nuevo más tarde.</p>}
+    </div>
+    <div className="channel-actions">
+      <ChannelConfiguration provider={provider} onApplied={() => setRevision(value => value + 1)}/>
+      <button className="primary" onClick={() => onAgents(provider)}>Configurar agente de {label}<Icon name="arrow" size={16}/></button>
+    </div>
+  </section>;
 }
-function Channels({ onAgents }: { onAgents: () => void }) {
-  return <><PageHeader eyebrow="DE LA IDEA A TU CONVERSACIÓN" title="Canales" description="Artemis trabaja aquí. Tú recibes lo importante donde ya estás."/><ChannelCard provider="whatsapp" onAgents={onAgents}/><ChannelCard provider="telegram" onAgents={onAgents}/><section className="panel channel-guide"><p className="eyebrow">TRES MENSAJES PARA EMPEZAR</p><div className="chat-examples"><code>¿Qué puedes hacer?</code><code>Busca Matrix para descargar</code><code>¿Cómo van mis descargas?</code></div><p>Habla con naturalidad. El bot utiliza AGY y las habilidades que tenga asignadas, sin activar menús.</p></section></>;
+function Channels({ onAgents }: { onAgents: (channel: AgentChannel) => void }) {
+  return <>
+    <PageHeader eyebrow="CANALES DE CONVERSACIÓN" title="Canales" description="Gestiona las conexiones de WhatsApp y Telegram."/>
+    <div className="channel-grid">
+      <ChannelCard provider="whatsapp" onAgents={onAgents}/>
+      <ChannelCard provider="telegram" onAgents={onAgents}/>
+    </div>
+    <section className="panel channel-guide"><p className="eyebrow">TRES MENSAJES PARA EMPEZAR</p><div className="chat-examples"><code>¿Qué puedes hacer?</code><code>Descarga una película</code><code>¿Cómo van mis descargas?</code></div><p>Habla con naturalidad. El bot utiliza AGY y las habilidades que tenga asignadas, sin activar menús.</p></section>
+  </>;
 }
 
 function Settings({ preferences, onChange }: { preferences: Preferences; onChange: (value: Preferences) => void }) {
@@ -100,17 +135,22 @@ export function App() {
   useEffect(() => { document.documentElement.dataset.theme = preferences.theme; document.documentElement.dataset.motion = preferences.motion; document.documentElement.dataset.density = preferences.density; localStorage.setItem("artemis_preferences", JSON.stringify({ ...preferences, themeRevision: 2 })); }, [preferences]);
   useEffect(() => { const handler = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setSearchOpen(value => !value); } if (event.key === "Escape") setSearchOpen(false); }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, []);
   useEffect(() => { const handler = () => setRoute(readRoute()); window.addEventListener("hashchange", handler); return () => window.removeEventListener("hashchange", handler); }, []);
-  const navigate = (view: View, tool?: ToolId) => { setRoute({ view, tool }); const path = navigation.find(item => item.id === view)!.path; window.history.replaceState(null, "", `#/${path}${view === "Tools" && tool ? `/${tool}` : ""}`); setSearchOpen(false); };
+  const navigate = (view: View, detail?: ToolId | AgentChannel) => {
+    const path = navigation.find(item => item.id === view)!.path;
+    window.history.replaceState(null, "", `#/${path}${detail ? `/${detail}` : ""}`);
+    setRoute(readRoute());
+    setSearchOpen(false);
+  };
   if (!authChecked) return <main className="boot-screen"><img src="/images/arty_final.png" alt="Artemis"/><p>Conectando tus herramientas…</p></main>;
   if (authRequired && !authenticated) return <SignIn onAuthenticated={() => setAuthenticated(true)}/>;
   const selected = navigation.find(item => item.id === route.view)!;
   const pages: Record<View, ReactNode> = {
-    Overview: <Overview navigate={navigate} light={preferences.theme === "light"}/>, Agents: <Agents apiFetch={apiFetch}/>, Skills: <Skills apiFetch={apiFetch}/>,
+    Overview: <Overview navigate={navigate} light={preferences.theme === "light"}/>, Agents: <Agents apiFetch={apiFetch} channel={route.channel ?? "whatsapp"} onChannelChange={channel => navigate("Agents", channel)}/>, Skills: <Skills apiFetch={apiFetch}/>,
     Tools: <Tools apiFetch={apiFetch} activeTool={route.tool ?? "notifications"} onSelectTool={tool => navigate("Tools", tool)}/>,
     Brain: <Brain/>,
-    Channels: <Channels onAgents={() => navigate("Agents")}/>, Settings: <Settings preferences={preferences} onChange={setPreferences}/>,
+    Channels: <Channels onAgents={channel => navigate("Agents", channel)}/>, Settings: <Settings preferences={preferences} onChange={setPreferences}/>,
   };
-  return <main className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}><ArtemisMascot reduced={preferences.motion === "reduced"}/><a href="#contenido" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("contenido")?.focus(); }}>Ir al contenido</a><aside className="sidebar"><button className="brand" onClick={() => navigate("Overview")} aria-label="Artemis, ir al inicio"><img src="/images/arty_final.png" alt=""/><span>ARTEMIS<small>Artemis platform - Admin Console</small></span><span className="brand-spark">✦</span></button><div className="workspace-chip"><span className="workspace-avatar">A</span><div><strong>Mi espacio</strong><small>Espacio personal</small></div><Icon name="check" size={15}/></div><span className="nav-caption">EXPLORAR</span><nav aria-label="Navegación principal">{navigation.map(item => <button key={item.id} onClick={() => navigate(item.id)} className={route.view === item.id ? "active" : ""} aria-current={route.view === item.id ? "page" : undefined} aria-label={item.label} title={collapsed ? item.label : undefined}><Icon name={item.icon}/><span>{item.label}</span>{route.view === item.id && <i className="nav-beam"/>}</button>)}</nav><div className="sidebar-note"><span>✦</span><p>«Cualquier forma, sensación, percepción, formación mental o conciencia —pasada, futura o presente, interna o externa, burda o sutil— debe ser vista como realmente es con sabiduría correcta: "Esto no es mío, esto no soy yo, esto no es mi ser"»</p><div className="signal-line"/></div><div className="sidebar-footer"><span className={`connection-dot ${health}`}/><div><strong>{health === "online" ? "Servidor conectado" : health === "offline" ? "Servidor sin respuesta" : "Comprobando servidor"}</strong><small>Tu servidor, tus reglas.</small></div></div></aside><section className="app-main"><div className="topbar"><div className="topbar-breadcrumb"><button aria-label={collapsed ? "Expandir menú" : "Contraer menú"} className="icon-button collapse-button" onClick={() => setCollapsed(value => !value)}><Icon name="menu" size={19}/></button><span>Mi espacio</span><b>/</b><strong>{selected.label}</strong></div><div className="topbar-actions"><button className="search-trigger" onClick={() => setSearchOpen(true)}><Icon name="search" size={16}/><span>Buscar algo…</span><kbd>Ctrl K</kbd></button><Clock/><button className="icon-button" aria-label={preferences.theme === "dark" ? "Activar tema claro" : "Activar tema oscuro"} onClick={() => setPreferences(value => ({ ...value, theme: value.theme === "dark" ? "light" : "dark" }))}><Icon name={preferences.theme === "dark" ? "sun" : "moon"} size={19}/></button></div></div><div className="workspace" id="contenido" tabIndex={-1}><div className="view-stage" key={route.view}>{pages[route.view]}</div><footer className="workspace-footer"><span>ARTEMIS <b>✦</b> TODO EN UN SOLO LUGAR</span><StatusTag tone={health === "online" ? "good" : "neutral"}>{health === "online" ? "Servidor en línea" : health === "offline" ? "Revisar conexión" : "Comprobando"}</StatusTag></footer></div></section>{searchOpen && <CommandPalette close={() => setSearchOpen(false)} navigate={navigate}/>}</main>;
+  return <main className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}><ArtemisMascot reduced={preferences.motion === "reduced"}/><a href="#contenido" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("contenido")?.focus(); }}>Ir al contenido</a><aside className="sidebar"><button className="brand" onClick={() => navigate("Overview")} aria-label="Artemis, ir al inicio"><img src="/images/arty_final.png" alt=""/><span>ARTEMIS<small>Artemis platform - Admin Console</small></span><span className="brand-spark">✦</span></button><div className="workspace-chip"><span className="workspace-avatar">A</span><div><strong>Mi espacio</strong><small>Espacio personal</small></div><Icon name="check" size={15}/></div><span className="nav-caption">EXPLORAR</span><nav aria-label="Navegación principal">{navigation.map(item => <button key={item.id} onClick={() => navigate(item.id)} className={route.view === item.id ? "active" : ""} aria-current={route.view === item.id ? "page" : undefined} aria-label={item.label} title={collapsed ? item.label : undefined}><Icon name={item.icon}/><span>{item.label}</span>{route.view === item.id && <i className="nav-beam"/>}</button>)}</nav><div className="sidebar-note"><span>✦</span><p>«Cualquier forma, sensación, percepción, formación mental o conciencia —pasada, futura o presente, interna o externa, burda o sutil— debe ser vista como realmente es con sabiduría correcta: "Esto no es mío, esto no soy yo, esto no es mi ser"»</p><div className="signal-line"/></div><div className="sidebar-footer"><span className={`connection-dot ${health}`}/><div><strong>{health === "online" ? "Servidor conectado" : health === "offline" ? "Servidor sin respuesta" : "Comprobando servidor"}</strong><small>Tu servidor, tus reglas.</small></div></div></aside><section className="app-main"><div className="topbar"><div className="topbar-breadcrumb"><button aria-label={collapsed ? "Expandir menú" : "Contraer menú"} className="icon-button collapse-button" onClick={() => setCollapsed(value => !value)}><Icon name="menu" size={19}/></button><span>Mi espacio</span><b>/</b><strong>{selected.label}</strong></div><div className="topbar-actions"><button className="search-trigger" aria-label="Buscar en la consola" onClick={() => setSearchOpen(true)}><Icon name="search" size={16}/><span>Buscar algo…</span><kbd>Ctrl K</kbd></button><Clock/><button className="icon-button" aria-label={preferences.theme === "dark" ? "Activar tema claro" : "Activar tema oscuro"} onClick={() => setPreferences(value => ({ ...value, theme: value.theme === "dark" ? "light" : "dark" }))}><Icon name={preferences.theme === "dark" ? "sun" : "moon"} size={19}/></button></div></div><div className="workspace" id="contenido" tabIndex={-1}><div className="view-stage" key={route.view}>{pages[route.view]}</div><footer className="workspace-footer"><span>ARTEMIS <b>✦</b> TODO EN UN SOLO LUGAR</span><StatusTag tone={health === "online" ? "good" : "neutral"}>{health === "online" ? "Servidor en línea" : health === "offline" ? "Revisar conexión" : "Comprobando"}</StatusTag></footer></div></section>{searchOpen && <CommandPalette close={() => setSearchOpen(false)} navigate={navigate}/>}</main>;
 }
 const root = document.getElementById("root");
 if (root) createRoot(root).render(<App/>);

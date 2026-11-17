@@ -54,6 +54,24 @@ describe("Artemis en español", () => {
     expect(screen.getByRole("heading", { name: "WhatsApp" })).toBeDefined();
   });
 
+  it("opens the matching agent from Channels and keeps drafts while switching agents", async () => {
+    render(<App/>);
+    fireEvent.click(await screen.findByRole("button", { name: "Canales" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Configurar agente de Telegram" }));
+    const switcher = within(await screen.findByRole("group", { name: "Canal del agente" }));
+    expect(window.location.hash).toBe("#/agentes/telegram");
+    expect(switcher.getByRole("button", { name: "Telegram" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("region", { name: "Agente de WhatsApp" })).toBeNull();
+
+    fireEvent.click(switcher.getByRole("button", { name: "WhatsApp" }));
+    const field = await screen.findByRole("textbox", { name: "PERSONA de WhatsApp" });
+    await waitFor(() => expect(field).toHaveProperty("value", persona));
+    fireEvent.change(field, { target: { value: "Borrador del agente" } });
+    fireEvent.click(switcher.getByRole("button", { name: "Telegram" }));
+    fireEvent.click(switcher.getByRole("button", { name: "WhatsApp" }));
+    expect(screen.getByRole("textbox", { name: "PERSONA de WhatsApp" })).toHaveProperty("value", "Borrador del agente");
+  });
+
   it("keeps translated skill connections and operations available", async () => {
     render(<App/>);
     fireEvent.click(await screen.findByRole("button", { name: "Habilidades" }));

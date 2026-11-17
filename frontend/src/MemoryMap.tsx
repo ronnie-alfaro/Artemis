@@ -125,29 +125,31 @@ export function MemoryMap({ items, total, collection, agent }: {
   }
 
   return <div className="memory-explorer">
-    <form className="memory-search brain-toolbar" onSubmit={event => {
-      event.preventDefault();
-      if (!query.trim()) return;
-      setSelection(null);
-      setExplore({ text: query.trim() });
-    }}>
-      <label>Buscar por significado<input value={query} onChange={event => setQuery(event.target.value)}
-        placeholder="Ej. Preferencias de idioma" maxLength={1000}/></label>
-      <button type="submit" className="primary" disabled={!query.trim() || (dateFiltered && !visible.length)}>
-        <Icon name="search" size={17}/>Buscar
-      </button>
-      {explore && <button type="button" className="secondary" onClick={clearSelection}>Limpiar selección</button>}
-    </form>
-    <div className="brain-toolbar memory-dates">
-      <label>Desde<input type="date" value={from} max={to || undefined} onChange={event => {
-        clearSelection(); setFrom(event.target.value);
-      }}/></label>
-      <label>Hasta<input type="date" value={to} min={from || undefined} onChange={event => {
-        clearSelection(); setTo(event.target.value);
-      }}/></label>
-      {dateFiltered && <button type="button" className="secondary" onClick={() => {
-        clearSelection(); setFrom(""); setTo("");
-      }}>Quitar fechas</button>}
+    <div className="memory-controls">
+      <form className="memory-search brain-toolbar" onSubmit={event => {
+        event.preventDefault();
+        if (!query.trim()) return;
+        setSelection(null);
+        setExplore({ text: query.trim() });
+      }}>
+        <label>Buscar por significado<input value={query} onChange={event => setQuery(event.target.value)}
+          placeholder="Ej. Preferencias de idioma" maxLength={1000}/></label>
+        <button type="submit" className="primary" disabled={!query.trim() || (dateFiltered && !visible.length)}>
+          <Icon name="search" size={17}/>Buscar
+        </button>
+        {explore && <button type="button" className="secondary" onClick={clearSelection}>Limpiar selección</button>}
+      </form>
+      <div className="brain-toolbar memory-dates">
+        <label>Desde<input type="date" value={from} max={to || undefined} onChange={event => {
+          clearSelection(); setFrom(event.target.value);
+        }}/></label>
+        <label>Hasta<input type="date" value={to} min={from || undefined} onChange={event => {
+          clearSelection(); setTo(event.target.value);
+        }}/></label>
+        {dateFiltered && <button type="button" className="secondary" onClick={() => {
+          clearSelection(); setFrom(""); setTo("");
+        }}>Quitar fechas</button>}
+      </div>
     </div>
     {dateFiltered && <small>Los registros sin fecha se ocultan al aplicar este filtro.</small>}
     <div className="memory-map-layout">

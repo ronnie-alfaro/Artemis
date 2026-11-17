@@ -38,13 +38,14 @@ export function Overview({ navigate, light }: {
     return () => { active = false; window.clearInterval(timer); };
   }, [refresh]);
   const configured = Object.values(snapshot.services).filter(value => value === true).length;
+  const serviceCount = Object.keys(snapshot.services).length;
   const verified = Object.values(snapshot.services).filter(value => value !== null).length;
   const activeReminders = snapshot.reminders?.filter(item => item.status === "active") ?? [];
   const upcoming = activeReminders.filter(item => item.next_check_at).sort((a, b) => Date.parse(a.next_check_at!) - Date.parse(b.next_check_at!)).slice(0, 3);
   const pending = snapshot.events?.filter(event => ["pending", "sending", "retry"].includes(event.whatsapp_status)).length;
   const channelLive = snapshot.channel?.configured && snapshot.channel.running;
   const metrics = [
-    { icon: "skills" as const, label: "Habilidades configuradas", value: verified ? `${configured} / 4` : "—", note: verified < 4 ? "Verificación parcial" : "Tus servicios personales", view: "Skills" as const, tone: "violet" },
+    { icon: "skills" as const, label: "Habilidades configuradas", value: verified ? `${configured} / ${serviceCount}` : "—", note: verified < serviceCount ? "Verificación parcial" : "Tus servicios personales", view: "Skills" as const, tone: "violet" },
     { icon: "clock" as const, label: "Recordatorios activos", value: snapshot.reminders ? String(activeReminders.length) : "—", note: "El tiempo también trabaja para ti", view: "Tools" as const, tool: "reminders" as const, tone: "mint" },
     { icon: "bell" as const, label: "Avisos pendientes", value: pending === undefined ? "—" : String(pending), note: "En las últimas 50 notificaciones", view: "Tools" as const, tool: "notifications" as const, tone: "amber" },
   ];

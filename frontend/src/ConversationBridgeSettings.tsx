@@ -53,16 +53,15 @@ export function ConversationBridgeSettings({ apiFetch, onSaved }: Props) {
   return <section className="panel skill-binding">
     <div className="persona-editor">
       <h2>Bridge conversacional</h2>
-      {saved && <form onSubmit={event => { event.preventDefault(); void save(); }}>
-        <label><input type="checkbox" checked={enabled} disabled={busy}
+      {saved && <form className="bridge-settings-form" onSubmit={event => { event.preventDefault(); void save(); }}>
+        <label className="bridge-enabled"><input type="checkbox" checked={enabled} disabled={busy}
           onChange={event => setEnabled(event.target.checked)}/> Activar para WhatsApp y Telegram</label>
-        <div>
-          <label htmlFor="conversation-bridge-url">Dirección del bridge</label>{" "}
+        <label>Dirección del bridge
           <select id="conversation-bridge-url" value={url} disabled={busy}
             onChange={event => setUrl(event.target.value)}>
             {saved.allowed_urls.map(option => <option key={option} value={option}>{option}</option>)}
           </select>
-        </div>
+        </label>
         <button className="primary" disabled={busy || (saved.enabled === enabled && saved.url === url)}>
           {busy ? "Guardando…" : "Guardar bridge"}
         </button>
