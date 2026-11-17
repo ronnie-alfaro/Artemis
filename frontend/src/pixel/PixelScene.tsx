@@ -1,5 +1,21 @@
 import { useEffect, useRef } from "react";
 import { buildScenery } from "./scenery";
+import { CELL, makeSpriteSheet } from "./sprites";
+
+const deities = ["athena", "apollo", "zeus"] as const;
+
+function SceneFigure({ deity }: { deity: typeof deities[number] }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const context = canvas.current?.getContext("2d");
+    const sheet = context && makeSpriteSheet(deity);
+    if (sheet) context.drawImage(sheet, 0, 0);
+  }, [deity]);
+
+  return <div className={`scene-figure scene-figure--${deity}`}>
+    <canvas ref={canvas} width={8 * CELL} height={CELL}/>
+  </div>;
+}
 
 export function PixelScene({ light }: { light: boolean }) {
   const host = useRef<HTMLDivElement>(null);
@@ -28,5 +44,6 @@ export function PixelScene({ light }: { light: boolean }) {
 
   return <div className="pixel-scene" ref={host} aria-hidden="true">
     <canvas ref={canvas}/>
+    {deities.map(deity => <SceneFigure key={deity} deity={deity}/>)}
   </div>;
 }

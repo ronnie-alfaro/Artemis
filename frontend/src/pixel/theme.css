@@ -109,6 +109,44 @@
   image-rendering: pixelated;
 }
 
+.scene-figure {
+  --figure-size: clamp(32px, 4vw, 48px);
+  position: absolute;
+  bottom: 10%;
+  width: var(--figure-size);
+  height: var(--figure-size);
+  margin-left: calc(var(--figure-size) / -2);
+  overflow: hidden;
+  animation: scene-stroll 3.6s linear infinite;
+}
+
+.scene-figure--athena { left: 17%; }
+.scene-figure--apollo { left: 50%; animation-delay: -1.3s; }
+.scene-figure--zeus { left: 83%; animation-delay: -2.6s; }
+
+.scene-figure canvas {
+  left: 0;
+  width: calc(8 * var(--figure-size));
+  height: var(--figure-size);
+  animation: scene-stride .56s steps(4) infinite;
+}
+
+@keyframes scene-stroll {
+  0% { transform: translateX(-8px); }
+  49.99% { transform: translateX(8px); }
+  50% { transform: translateX(8px) scaleX(-1); }
+  100% { transform: translateX(-8px) scaleX(-1); }
+}
+
+@keyframes scene-stride {
+  from { transform: translateX(-12.5%); }
+  to { transform: translateX(-62.5%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-figure, .scene-figure canvas { animation: none; }
+}
+
 @media (max-width: 680px) {
   .pixel-scene {
     grid-row: 1;
