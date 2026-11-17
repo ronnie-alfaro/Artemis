@@ -112,3 +112,32 @@ def test_image_memories_expire_and_semantic_search_is_conversation_scoped(tmp_pa
     assert manager.search_images("alice", "chat-a", "cat")[0]["image_id"] == "img-a"
     assert manager.browse("agent_memory")["total"] == 2
     assert all(item["id"] != expired for item in manager.search("agent_memory", "alice", "cat"))
+
+
+def test_memory_map_and_explore_routes(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.memory import install_memory_routes
+
+    manager = MemoryManager(str(tmp_path), encoder=Encoder())
+    cat = manager.remember("agent_memory", "alice", "cat")
+    dog = manager.remember("agent_memory", "alice", "dog")
+    other = manager.remember("agent_memory", "bob", "cat preference")
+    app = FastAPI()
+    install_memory_routes(app, manager)
+    base = "/api/v1/memory/agent_memory"
+    with TestClient(app) as client:
+        snapshot = client.get(f"{base}/map", params={"agent": "alice"}).json()
+        assert snapshot["total"] == 2
+        assert {item["id"] for item in snapshot["items"]} == {cat, dog}
+        assert all(item["metadata"]["created_at"] > 0 for item in snapshot["items"])
+        results = client.post(f"{base}/explore", json={"text": "cat", "agent": "alice"})
+        assert [item["id"] for item in results.json()] == [cat, dog]
+        neighbors = client.post(f"{base}/explore", json={"memory_id": cat, "ids": [cat, other]})
+        assert [item["id"] for item in neighbors.json()] == [other]
+        assert client.post(f"{base}/explore", json={"text": "cat", "ids": []}).json() == []
+        assert client.post(f"{base}/explore", json={"text": "  "}).status_code == 422
+        assert client.post(
+            f"{base}/explore", json={"text": "cat", "memory_id": cat},
+        ).status_code == 422

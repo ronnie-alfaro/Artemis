@@ -8,6 +8,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 COLLECTIONS = ("agent_persona", "agent_memory", "agent_relations")
+MEMORY_MAP_LIMIT = 300
 MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
@@ -63,7 +64,7 @@ class MemoryManager:
             embedding = self._embed(text)
             memory_id = str(uuid4())
             target.add(ids=[memory_id], documents=[text], embeddings=embedding,
-                       metadatas=[{"agent": agent}])
+                       metadatas=[{"agent": agent, "created_at": time.time()}])
             return memory_id
 
     def remember_event(self, agent: str, event_id: str, text: str,
@@ -127,7 +128,7 @@ class MemoryManager:
     def browse(self, collection: str, agent: str | None = None,
                offset: int = 0, limit: int = 20) -> dict[str, Any]:
         """Read a bounded page for the authenticated administrative panel, without encoding."""
-        if offset < 0 or not 1 <= limit <= 50:
+        if offset < 0 or not 1 <= limit <= MEMORY_MAP_LIMIT:
             raise ValueError("Paginación no válida.")
         with self._lock:
             target = self._collection(collection)
@@ -145,6 +146,36 @@ class MemoryManager:
                  "embedding": embeddings[i].tolist() if embeddings is not None else []}
                 for i, key in enumerate(result["ids"])
             ]}
+
+    def explore(self, collection: str, *, agent: str | None, text: str | None,
+                memory_id: str | None, ids: list[str] | None) -> list[dict[str, Any]]:
+        """Find neighbors in the selected administrative memory scope."""
+        with self._lock:
+            target = self._collection(collection)
+            if collection == "agent_memory":
+                self._purge_expired_images(target)
+            if not target.count() or ids == []:
+                return []
+            filters = {"agent": agent} if agent else None
+            if memory_id:
+                origin = target.get(ids=[memory_id], where=filters, include=["embeddings"])
+                if not origin["ids"]:
+                    return []
+                embeddings = origin["embeddings"]
+            else:
+                assert text is not None
+                embeddings = self._embed(text)
+            result = target.query(
+                query_embeddings=embeddings, where=filters, ids=ids,
+                n_results=9 if memory_id else 8, include=["documents", "distances"],
+            )
+            return [
+                {"id": key, "text": document, "distance": distance}
+                for key, document, distance in zip(
+                    result["ids"][0], result["documents"][0], result["distances"][0], strict=True,
+                )
+                if key != memory_id
+            ][:8]
 
     def forget(self, collection: str, agent: str, memory_id: str) -> bool:
         self._validate(agent, memory_id)
