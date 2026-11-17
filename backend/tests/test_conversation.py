@@ -52,7 +52,7 @@ def setup(tmp_path, monkeypatch):
     return orchestrator, bot, channel, bridge, downloads
 
 
-def test_uses_agy_by_default_with_persona_and_only_assigned_skills(tmp_path, monkeypatch):
+def test_conversation_with_persona_and_only_assigned_skills(tmp_path, monkeypatch):
     async def run():
         orchestrator, bot, channel, bridge, downloads = setup(tmp_path, monkeypatch)
         response = await orchestrator.handle(
@@ -121,7 +121,7 @@ def test_old_worker_does_not_receive_conversational_jobs(tmp_path, monkeypatch):
             )
         )
         assert not response.message.deferred
-        assert "AGY" in response.message.content
+        assert "No puedo conversar" in response.message.content
         assert orchestrator.antigravity_queue.recent() == []
 
     asyncio.run(run())

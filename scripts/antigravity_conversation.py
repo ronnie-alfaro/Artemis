@@ -34,7 +34,7 @@ def command(cli: str) -> list[str]:
 
 def prompt(job: dict, history: list[dict]) -> str:
     return (
-        "Eres el asistente conversacional de Artemis. Usa AGY como motor, pero habla como el bot. "
+        "Eres el asistente conversacional de Artemis. Habla como el bot. "
         "Responde naturalmente a preguntas generales y mantén el contexto de esta conversación. "
         "Artemis conecta WhatsApp y Telegram con habilidades asignadas por su administrador: "
         "Seerr (películas y series), Usenet (descargas), Karakeep (enlaces), GitHub (repositorios), "

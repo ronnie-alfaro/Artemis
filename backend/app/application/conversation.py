@@ -31,7 +31,7 @@ class ConversationAgent:
     definition = Agent(
         name="conversation",
         version="0.1.0",
-        purpose="Conversación natural con AGY y PERSONA del bot.",
+        purpose="Conversación natural con Codex y PERSONA del bot.",
         capabilities=[
             AgentCapability(
                 name="assistant.conversation",
@@ -81,7 +81,7 @@ class ConversationAgent:
             )
             content, deferred = "", "true"
         except ValueError:
-            content = "No puedo conversar con AGY ahora mismo. Inténtalo de nuevo en un momento."
+            content = "No puedo conversar ahora mismo. Inténtalo de nuevo en un momento."
             deferred = "false"
         return AgentResponse(
             result=AgentResult(

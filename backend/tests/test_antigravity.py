@@ -52,6 +52,7 @@ async def test_worker_writes_source_and_returns_answer(tmp_path, monkeypatch):
         )
         cli.chmod(0o755)
         monkeypatch.setattr(module, "CLI", str(cli))
+        monkeypatch.setenv("ARTEMIS_CODEX_CLI", str(cli))
         monkeypatch.setattr(module, "STATE", tmp_path)
         monkeypatch.setattr(module, "SOURCE", source)
         monkeypatch.setattr(module.worker, "QUEUE", tmp_path)
@@ -77,11 +78,14 @@ async def test_worker_writes_source_and_returns_answer(tmp_path, monkeypatch):
             sys.modules["codex_worker"] = previous
 
 
+@pytest.mark.parametrize("provider", ["codex", "antigravity"])
 @pytest.mark.asyncio
 async def test_conversation_worker_uses_persona_and_returns_structured_answer_without_host_tools(
     tmp_path,
     monkeypatch,
+    provider,
 ):
+    monkeypatch.setenv("ARTEMIS_CONVERSATION_PROVIDER", provider)
     scripts = Path(__file__).resolve().parents[2] / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
     spec = importlib.util.spec_from_file_location(
@@ -98,6 +102,14 @@ async def test_conversation_worker_uses_persona_and_returns_structured_answer_wi
             "#!/usr/bin/env python3\nimport json, pathlib, sys\n"
             "args=sys.argv[1:]\n"
             'assert "--dangerously-skip-permissions" not in args\n'
+            'if "exec" in args:\n'
+            ' assert args[args.index("-s")+1] == "read-only"\n'
+            ' assert "features.shell_tool=false" in args\n'
+            ' assert "pirata" in sys.stdin.read()\n'
+            ' result={"reply":"¡Arrr, hola!", "capability":"", "command":""}\n'
+            ' pathlib.Path(args[args.index("--output-last-message")+1])'
+            '.write_text(json.dumps(result))\n'
+            ' sys.exit(0)\n'
             'assert "--sandbox" in args\n'
             'settings=json.loads(args[args.index("--settings")+1])\n'
             'assert settings["permissions"] == {"allow":[],"deny":["*"]}\n'
@@ -108,6 +120,7 @@ async def test_conversation_worker_uses_persona_and_returns_structured_answer_wi
         )
         cli.chmod(0o755)
         monkeypatch.setattr(module, "CLI", str(cli))
+        monkeypatch.setenv("ARTEMIS_CODEX_CLI", str(cli))
         monkeypatch.setattr(module, "STATE", tmp_path)
         monkeypatch.setattr(module, "SOURCE", source)
         monkeypatch.setattr(module.worker, "QUEUE", tmp_path)

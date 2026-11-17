@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import signal
+import tempfile
 from pathlib import Path
 from uuid import UUID
 
@@ -73,21 +74,49 @@ async def execute(path: Path, job: dict) -> None:
     if natural:
         workspace.mkdir(parents=True, exist_ok=True)
     process = None
+    provider = os.environ.get("ARTEMIS_CONVERSATION_PROVIDER", "codex")
+    use_codex = natural and provider == "codex"
     try:
-        with (logs / f"{job_id}.stderr").open("wb") as log:
-            process = await asyncio.create_subprocess_exec(
-                *(conversation.command(CLI) if natural else command()),
-                "--print=" + prompt,
-                cwd=workspace,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=log,
-                start_new_session=True,
+        if natural and provider not in {"codex", "antigravity"}:
+            raise ValueError("Unknown conversation provider")
+        with tempfile.TemporaryDirectory(prefix="artemis-conversation-") as temporary:
+            answer_path = Path(temporary) / "answer.json"
+            schema_path = Path(temporary) / "schema.json"
+            schema_path.write_text(json.dumps(conversation.SCHEMA))
+            invocation = (
+                [os.environ.get("ARTEMIS_CODEX_CLI", "/usr/local/lib/artemis-codex/bin/codex"),
+                 "exec", "--ignore-user-config", "--skip-git-repo-check", "--ephemeral",
+                 "-s", "read-only", "-c", 'approval_policy="never"',
+                 "-c", "features.shell_tool=false", "--output-schema", str(schema_path),
+                 "--output-last-message", str(answer_path), "-"]
+                if use_codex else
+                [*(conversation.command(CLI) if natural else command()), "--print=" + prompt]
             )
-            output, _ = await asyncio.wait_for(
-                process.communicate(), min(TIMEOUT, 120) if natural else TIMEOUT,
+            environment = os.environ.copy()
+            if use_codex:
+                environment["CODEX_HOME"] = os.environ.get(
+                    "ARTEMIS_CONVERSATION_CODEX_HOME", "/var/lib/artemis-codex/codex"
+                )
+            with (logs / f"{job_id}.stderr").open("wb") as log:
+                process = await asyncio.create_subprocess_exec(
+                    *invocation,
+                    cwd=workspace,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=log,
+                    env=environment,
+                    start_new_session=True,
+                )
+                output, _ = await asyncio.wait_for(
+                    process.communicate(prompt.encode() if use_codex else None),
+                    min(TIMEOUT, 120) if natural else TIMEOUT,
+                )
+            answer = (
+                json.dumps({"status": "SUCCESS", "structured_output": json.loads(
+                    answer_path.read_text()
+                )}) if use_codex and process.returncode == 0
+                else output.decode(errors="replace").strip()
             )
-        answer = output.decode(errors="replace").strip()
         if process.returncode != 0 or not answer:
             raise RuntimeError("agy failed")
         if natural:
@@ -117,7 +146,7 @@ async def execute(path: Path, job: dict) -> None:
     finally:
         if natural and job.get("status") == "failed":
             job["answer"] = (
-                "No pude completar tu petición con AGY. Inténtalo de nuevo en un momento."
+                "No pude completar tu petición con el motor de conversación. Inténtalo de nuevo en un momento."
             )
         if process and process.returncode is None:
             os.killpg(process.pid, signal.SIGKILL)
