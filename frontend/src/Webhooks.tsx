@@ -1,3 +1,4 @@
+import { PageHeader } from "./ui";
 import { useEffect, useState } from "react";
 import "./webhooks.css";
 
@@ -39,25 +40,7 @@ export function Webhooks({ apiFetch, embedded = false, onOpenNotifications }: Pr
   }, [apiFetch, source, refresh]);
 
   return <>
-    {embedded ? <h2>Webhooks</h2> : <header><p>EVENTOS DE TUS APLICACIONES</p><div className="head"><h1>Webhooks</h1></div></header>}
-    <section className="panel webhook-setup">
-      <h3>Recibir eventos</h3>
-      <p>Webhooks recibe los eventos de tus aplicaciones y reutiliza la herramienta Notificaciones para enviarlos al destino configurado.</p>
-      {onOpenNotifications && <button onClick={onOpenNotifications}>Configurar Notificaciones</button>}
-      <p>{!configuration ? "Consultando configuración…" : configuration.configured && configuration.storage_available
-        ? "Receptor activo. Los eventos se guardan en Artemis."
-        : "Configura ARTEMIS_WEBHOOK_TOKEN en el despliegue y reinicia la API para activar el receptor."}</p>
-      {configuration && <p>{configuration.whatsapp_enabled
-        ? configuration.whatsapp_recipient_available
-          ? "Avisos por WhatsApp activos para tu conversación."
-          : "Los avisos esperan un destino de WhatsApp. Escribe al agente; si hay varias conversaciones, configura el destinatario."
-        : "Activa Notificaciones y configura WhatsApp para enviar avisos."}</p>}
-      <p>Las aplicaciones deben compartir una red Docker con Artemis. En Seerr, abre Ajustes → Notificaciones → Webhook.</p>
-      <label>URL para Seerr<code>{configuration?.docker_url.replace("{source}", "seerr") ?? "http://artemis-api:8000/api/v1/webhooks/seerr"}</code></label>
-      <label>Autorización<code>Bearer TU_TOKEN_DE_WEBHOOK</code></label>
-      <label>Plantilla JSON para Seerr<pre>{JSON.stringify({ notification_type: "{{notification_type}}", subject: "{{subject}}", message: "{{message}}" }, null, 2)}</pre></label>
-      <p>Para otra app, cambia «seerr» por su nombre en la URL y envía un JSON con «event», «title» y «message». Añade un «event_id» único para evitar duplicados al reintentar.</p>
-    </section>
+    {embedded ? <h2 className="tool-heading">Webhooks</h2> : <PageHeader eyebrow="EVENTOS DE TUS APLICACIONES" title="Webhooks"/>}
     <section className="panel webhook-feed">
       <div className="webhook-toolbar"><h3>Últimos eventos</h3>
         <label>Filtrar por app<input aria-label="Filtrar eventos por app" value={source} placeholder="Todas · seerr, backups…" onChange={event => setSource(event.target.value)} /></label>
@@ -72,6 +55,27 @@ export function Webhooks({ apiFetch, embedded = false, onOpenNotifications }: Pr
         {event.whatsapp_error && <p>{event.whatsapp_error}</p>}
         {event.title && <h3>{event.title}</h3>}<p>{event.message}</p>
       </article>)}
+    </section>
+    <section className="panel webhook-setup">
+      <h3>Recibir eventos</h3>
+      <p>Webhooks recibe los eventos de tus aplicaciones y reutiliza la herramienta Notificaciones para enviarlos al destino configurado.</p>
+      {onOpenNotifications && <button onClick={onOpenNotifications}>Configurar Notificaciones</button>}
+      <p>{!configuration ? "Consultando configuración…" : configuration.configured && configuration.storage_available
+        ? "Receptor activo. Los eventos se guardan en Artemis."
+        : "Configura ARTEMIS_WEBHOOK_TOKEN en el despliegue y reinicia la API para activar el receptor."}</p>
+      {configuration && <p>{configuration.whatsapp_enabled
+        ? configuration.whatsapp_recipient_available
+          ? "Avisos por WhatsApp activos para tu conversación."
+          : "Los avisos esperan un destino de WhatsApp. Escribe al agente; si hay varias conversaciones, configura el destinatario."
+        : "Activa Notificaciones y configura WhatsApp para enviar avisos."}</p>}
+      <details className="webhook-instructions">
+        <summary>Instrucciones de integración</summary>
+        <p>Las aplicaciones deben compartir una red Docker con Artemis. En Seerr, abre Ajustes → Notificaciones → Webhook.</p>
+        <label>URL para Seerr<code>{configuration?.docker_url.replace("{source}", "seerr") ?? "http://artemis-api:8000/api/v1/webhooks/seerr"}</code></label>
+        <label>Autorización<code>Bearer TU_TOKEN_DE_WEBHOOK</code></label>
+        <label>Plantilla JSON para Seerr<pre>{JSON.stringify({ notification_type: "{{notification_type}}", subject: "{{subject}}", message: "{{message}}" }, null, 2)}</pre></label>
+        <p>Para otra app, cambia «seerr» por su nombre en la URL y envía un JSON con «event», «title» y «message». Añade un «event_id» único para evitar duplicados al reintentar.</p>
+      </details>
     </section>
   </>;
 }

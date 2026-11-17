@@ -1,2 +1,28 @@
 .tools-inventory{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;background:none;border:0;padding:0;box-shadow:none;margin:0 0 25px}.tools-inventory>button{position:relative;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;min-height:153px;padding:20px;background:var(--surface);border-radius:12px;text-align:left;border-color:var(--line);overflow:hidden}.tools-inventory>button:hover:not(:disabled){transform:translateY(-3px)}.tools-inventory .tool-selected{border-color:color-mix(in srgb,var(--blue) 60%,var(--line));background:linear-gradient(130deg,color-mix(in srgb,var(--blue) 8%,var(--surface)),var(--surface));box-shadow:0 0 0 1px color-mix(in srgb,var(--blue) 15%,transparent)}.tool-card-icon{display:inline-flex;padding:9px;border-radius:9px;background:var(--soft);border:1px solid var(--line);margin-bottom:6px}.tool-card-icon.mint{color:var(--accent)}.tool-card-icon.violet{color:var(--violet)}.tool-card-icon.amber{color:var(--warn)}.tool-card-kind{position:absolute;top:25px;right:18px;font-family:monospace;font-size:10px;color:var(--muted);letter-spacing:.1em}.tools-inventory strong{font-size:16px;font-weight:580}.tools-inventory small{font-size:13px;font-weight:400;line-height:1.6;color:var(--muted);max-width:240px}.notification-settings,.notification-send,.notification-history{margin-bottom:20px}.notification-settings>h2{font-size:24px}.notification-settings h3{margin-top:23px}.notification-settings p,.notification-send p{margin:12px 0;line-height:1.7;color:var(--muted);font-size:14px}.notification-settings label,.notification-send label{display:block;margin:17px 0}.notification-settings select,.notification-send input,.notification-send textarea{display:block;width:100%;max-width:760px;margin-top:7px;background:var(--bg);color:inherit}.notification-send textarea{min-height:110px;resize:vertical}.notification-settings .notification-toggle{display:flex;align-items:center;gap:10px}.notification-toggle input{height:15px;width:15px}.notification-history-head,.notification-history article>div{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.notification-history-head button,.notification-history time{margin-left:auto}.notification-history-head button{font-size:13px}.notification-history article{padding:20px 0;border-top:1px solid var(--line);margin-top:18px}.notification-history article>div{font-size:12px;color:var(--muted)}.notification-history article>div>strong{font-size:13px;color:var(--blue);font-weight:500}.notification-history article>div>span{padding:4px 7px;background:var(--soft);border:1px solid var(--line);border-radius:5px;font-size:11px}.notification-history article h3{margin-top:13px;font-size:14px}.notification-history article p{margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;color:var(--muted);line-height:1.7}
 @media(max-width:680px){.tools-inventory{gap:8px;margin-bottom:20px}.tools-inventory>button{padding:13px 10px;min-height:154px;gap:7px}.tool-card-kind{position:static;font-size:8px;margin:0}.tool-card-icon{padding:7px;margin-bottom:2px}.tool-card-icon .icon{height:17px;width:17px}.tools-inventory strong{font-size:13px}.tools-inventory small{font-size:11px;line-height:1.5}.notification-history-head{gap:11px}.notification-history-head h3{font-size:15px}.notification-history-head button{font-size:12px;padding:8px}.notification-history time{font-size:11px}}
+
+.tool-heading { margin-top: 8px; }
+.tool-description { color: var(--muted); margin-top: 6px; }
+.notification-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+.notification-grid > .panel { display: flex; flex-direction: column; margin-bottom: 0; }
+.notification-grid > .panel > .primary { align-self: flex-start; margin-top: auto; }
+.notification-grid h3 { margin-top: 0; }
+.notification-settings .notification-toggle input { flex: none; margin: 0; }
+@media (max-width: 915px) {
+  .notification-grid { grid-template-columns: 1fr; gap: 0; }
+}
+@media (max-width: 480px) {
+  .tools-inventory { grid-template-columns: 1fr; }
+  .tools-inventory > button {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    min-height: 0;
+    gap: 2px 10px;
+    padding: 10px 12px;
+  }
+  .tool-card-icon { grid-column: 1; grid-row: 1 / 3; margin: 0; }
+  .tool-card-kind { grid-column: 3; grid-row: 1; margin-top: 3px; }
+  .tools-inventory strong { grid-column: 2; grid-row: 1; }
+  .tools-inventory small { grid-column: 2 / -1; grid-row: 2; max-width: none; }
+}

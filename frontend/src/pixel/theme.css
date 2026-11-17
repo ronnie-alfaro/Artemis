@@ -1,0 +1,182 @@
+@font-face {
+  font-family: "Pixelify Sans";
+  src: url("/fonts/pixelify-sans/PixelifySans.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+:root {
+  --bg: #f0e8df;
+  --surface: #fff8ed;
+  --surface-raised: #f7ede0;
+  --sidebar: #e8dbdf;
+  --line: #aa97a4;
+  --muted: #60536c;
+  --text: #30263e;
+  --blue: #56468d;
+  --accent: #18675e;
+  --accent-ink: #fff8ee;
+  --soft: #ede1e8;
+  --warn: #804e24;
+  --violet: #67437c;
+  --shadow: 3px 3px 0 #c7b3bf;
+  --pixel-title: "Pixelify Sans", ui-monospace, monospace;
+  --pixel-label: ui-monospace, Consolas, monospace;
+  color: var(--text);
+  background: var(--bg);
+}
+
+:root[data-theme=dark] {
+  --bg: #18182b;
+  --surface: #222239;
+  --surface-raised: #292943;
+  --sidebar: #1c1c32;
+  --line: #494665;
+  --muted: #b9afcd;
+  --text: #f4edf4;
+  --blue: #c9b7f8;
+  --accent: #83ddca;
+  --accent-ink: #183138;
+  --soft: #2b2a46;
+  --warn: #f3c48f;
+  --violet: #d3a6de;
+  --shadow: 3px 3px 0 #121220;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.app-main {
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--line) .7px, transparent .7px);
+  background-size: 12px 12px;
+}
+
+.app-shell .topbar {
+  background: var(--surface);
+  backdrop-filter: none;
+}
+
+.app-shell :is(.panel, .metric-card, .command-hero, .list article, .connections-strip) {
+  border-radius: 2px;
+  box-shadow: var(--shadow);
+}
+
+.app-shell :is(.primary, .secondary, .icon-button, .sidebar nav button, .status-tag),
+.app-shell :is(input:not([type=checkbox], [type=radio]), textarea, select) {
+  border-radius: 2px;
+}
+
+.app-shell .sidebar nav button.active {
+  background: var(--soft);
+  border: 1px solid var(--line);
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+.app-shell .nav-beam {
+  display: none;
+}
+
+.app-shell :is(.brand > span:first-of-type, .page-header h1, .overview-intro h1, .metric-card > strong) {
+  font-family: var(--pixel-title);
+  letter-spacing: -.015em;
+}
+
+.app-shell :is(.eyebrow, .nav-caption, .workspace-footer > span, kbd) {
+  font-family: var(--pixel-label);
+}
+
+.app-shell .command-hero {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+.pixel-scene {
+  display: grid;
+  place-items: center;
+  position: relative;
+  min-width: 0;
+  min-height: 260px;
+  overflow: hidden;
+  isolation: isolate;
+  background: #1d1e3b;
+  border-left: 1px solid var(--line);
+}
+
+.pixel-scene canvas {
+  position: absolute;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+
+.scene-figure {
+  --figure-size: clamp(32px, 4vw, 48px);
+  position: absolute;
+  bottom: 10%;
+  width: var(--figure-size);
+  height: var(--figure-size);
+  margin-left: calc(var(--figure-size) / -2);
+  overflow: hidden;
+  animation: scene-stroll 3.6s linear infinite;
+}
+
+.scene-figure--athena { left: 17%; }
+.scene-figure--apollo { left: 50%; animation-delay: -1.3s; }
+.scene-figure--zeus { left: 83%; animation-delay: -2.6s; }
+
+.scene-figure canvas {
+  left: 0;
+  width: calc(8 * var(--figure-size));
+  height: var(--figure-size);
+  animation: scene-stride .56s steps(4) infinite;
+}
+
+@keyframes scene-stroll {
+  0% { transform: translateX(-8px); }
+  49.99% { transform: translateX(8px); }
+  50% { transform: translateX(8px) scaleX(-1); }
+  100% { transform: translateX(-8px) scaleX(-1); }
+}
+
+@keyframes scene-stride {
+  from { transform: translateX(-12.5%); }
+  to { transform: translateX(-62.5%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-figure, .scene-figure canvas { animation: none; }
+}
+
+@media (max-width: 680px) {
+  .pixel-scene {
+    grid-row: 1;
+    min-height: 190px;
+    border-left: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+.artemis-mascot {
+  position: fixed;
+  z-index: 12;
+  inset: auto 8px env(safe-area-inset-bottom, 0px);
+  height: 1px;
+  pointer-events: none;
+}
+
+.artemis-mascot canvas {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 72px;
+  height: 72px;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+
+@media (max-width: 680px) {
+  .artemis-mascot canvas {
+    width: 48px;
+    height: 48px;
+  }
+}

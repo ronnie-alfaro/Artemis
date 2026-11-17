@@ -33,14 +33,3 @@ export function List({ rows }: { rows: string[][] }) {
 export function StatusTag({ children, tone = "neutral" }: { children: ReactNode; tone?: "good" | "warn" | "neutral" }) {
   return <span className={`status-tag ${tone}`}><i/>{children}</span>;
 }
-export function Orbit() {
-  return <div className="orbit-scene" aria-hidden="true">
-    <div className="orbit-grid"/><div className="orbital orbital-one"/><div className="orbital orbital-two"/><div className="orbital orbital-three"/>
-    <div className="orbit-core"><img src="/artemis-logo.png?v=2" alt=""/><span className="core-ring"/></div>
-    <div className="orbit-satellite satellite-one"><Icon name="channels"/><span>WHATSAPP</span><i/></div>
-    <div className="orbit-satellite satellite-two"><Icon name="clock"/><span>RECORDATORIOS</span><i/></div>
-    <div className="orbit-satellite satellite-three"><Icon name="skills"/><span>HABILIDADES</span><i/></div>
-    {Array.from({ length: 7 }, (_, index) => <span key={index} className={`orbit-star star-${index}`}/>)}
-    <div className="orbit-caption"><span/>UN SOLO CENTRO. TODO CONECTADO.</div>
-  </div>;
-}

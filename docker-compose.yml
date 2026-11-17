@@ -7,6 +7,8 @@ services:
       - ${ARTEMIS_CODEX_STATE_DIR:-/var/lib/artemis-codex}/queue:/data/codex
       - ${ARTEMIS_ANTIGRAVITY_STATE_DIR:-/var/lib/artemis-antigravity}/queue:/data/antigravity
     environment:
+      ARTEMIS_BRIDGE_URL: ${ARTEMIS_BRIDGE_URL:-}
+      ARTEMIS_BRIDGE_ALLOWED_URLS: ${ARTEMIS_BRIDGE_ALLOWED_URLS:-}
       ARTEMIS_MEMORY_DIR: /data/memory
       ARTEMIS_VISION_URL: ${ARTEMIS_VISION_URL:-}
       ARTEMIS_VISION_MODEL: ${ARTEMIS_VISION_MODEL:-}
@@ -29,7 +31,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [internal, whatsapp-egress, seerr]
+    networks: [internal, whatsapp-egress, seerr, bridge-internal]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -50,6 +52,30 @@ services:
     tmpfs: [/tmp, /var/cache/nginx, /var/run]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+  artemis-bridge:
+    build: ./bridge
+    restart: unless-stopped
+    networks: [bridge-internal, bridge-egress]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 134217728
+          mode: 1023
+      - ${ARTEMIS_BRIDGE_ADAPTERS_DIR:-/var/lib/artemis-bridge/adapters}:/providers:ro
+      - ${ARTEMIS_BRIDGE_STATE_DIR:-/var/lib/artemis-bridge/state}:/state
+      - ${ARTEMIS_BRIDGE_CODEX_BIN_DIR:-/usr/local/lib/artemis-codex/bin}:/cli/codex:ro
+      - ${ARTEMIS_BRIDGE_AGY_BIN_DIR:-/var/lib/artemis-bridge/agy-bin}:/cli/agy:ro
+    pids_limit: 128
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/healthz')"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
   postgres:
     image: postgres:16-alpine
     environment:
@@ -71,6 +97,9 @@ networks:
     internal: true
   edge: {}
   whatsapp-egress: {}
+  bridge-internal:
+    internal: true
+  bridge-egress: {}
   seerr:
     external: true
     name: seerr_default

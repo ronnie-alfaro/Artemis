@@ -107,24 +107,27 @@ function NotificationsTool({ apiFetch }: Props) {
 
   const ready = configuration?.storage_available && configuration.whatsapp_configured && configuration.settings.enabled;
   return <>
-    <section className="panel notification-settings">
-      <h2>Notificaciones</h2><p>Una herramienta compartida para enviar avisos desde cualquier habilidad o directamente desde aquí.</p>
-      <h3>Configuración</h3>
-      <label className="notification-toggle"><input type="checkbox" aria-label="Activar notificaciones" checked={settings.enabled} onChange={event => setSettings(previous => ({ ...previous, enabled: event.target.checked }))} />Activar notificaciones</label>
-      <label>Canal<select aria-label="Canal de notificaciones" value={settings.channel} disabled><option value="whatsapp">WhatsApp</option></select></label>
-      <label>Destinatario<select aria-label="Destinatario de notificaciones" value={settings.recipient_id ?? ""} onChange={event => setSettings(previous => ({ ...previous, recipient_id: event.target.value || null }))}>
-        <option value="">Automático · única conversación registrada</option>
-        {(configuration?.available_recipients ?? []).map(recipient => <option value={recipient} key={recipient}>{recipient}</option>)}
-      </select></label>
-      <p>{!configuration ? "Cargando configuración…" : !configuration.whatsapp_configured ? "Configura WhatsApp en Artemis para enviar avisos." : configuration.recipient_available ? "WhatsApp conectado y destinatario disponible." : "Escribe al agente de WhatsApp para registrar tu conversación o selecciona un destinatario."}</p>
-      <button onClick={save} className="primary" disabled={saving || !configuration?.storage_available}>{saving ? "Guardando…" : "Guardar configuración"}</button>
-    </section>
-    <section className="panel notification-send">
-      <h3>Enviar aviso</h3><p>Usa Notificaciones directamente, sin activar una habilidad.</p>
-      <label>Título<input aria-label="Título del aviso" maxLength={512} value={title} disabled={sending} onChange={event => { setTitle(event.target.value); deliveryId.current = null; }} /></label>
-      <label>Mensaje<textarea aria-label="Mensaje del aviso" maxLength={4096} value={message} disabled={sending} onChange={event => { setMessage(event.target.value); deliveryId.current = null; }} /></label>
-      <button className="primary" onClick={send} disabled={sending || !ready || (!title.trim() && !message.trim())}>{sending ? "Enviando…" : "Enviar notificación"}</button>
-    </section>
+    <h2 className="tool-heading">Notificaciones</h2>
+    <p className="tool-description">Envía avisos desde las habilidades o directamente desde aquí.</p>
+    <div className="notification-grid">
+      <section className="panel notification-settings">
+        <h3>Configuración</h3>
+        <label className="notification-toggle"><input type="checkbox" aria-label="Activar notificaciones" checked={settings.enabled} onChange={event => setSettings(previous => ({ ...previous, enabled: event.target.checked }))} />Activar notificaciones</label>
+        <label>Canal<select aria-label="Canal de notificaciones" value={settings.channel} disabled><option value="whatsapp">WhatsApp</option></select></label>
+        <label>Destinatario<select aria-label="Destinatario de notificaciones" value={settings.recipient_id ?? ""} onChange={event => setSettings(previous => ({ ...previous, recipient_id: event.target.value || null }))}>
+          <option value="">Automático · única conversación registrada</option>
+          {(configuration?.available_recipients ?? []).map(recipient => <option value={recipient} key={recipient}>{recipient}</option>)}
+        </select></label>
+        <p>{!configuration ? "Cargando configuración…" : !configuration.whatsapp_configured ? "Configura WhatsApp en Artemis para enviar avisos." : configuration.recipient_available ? "WhatsApp conectado y destinatario disponible." : "Escribe al agente de WhatsApp para registrar tu conversación o selecciona un destinatario."}</p>
+        <button onClick={save} className="primary" disabled={saving || !configuration?.storage_available}>{saving ? "Guardando…" : "Guardar configuración"}</button>
+      </section>
+      <section className="panel notification-send">
+        <h3>Enviar aviso</h3><p>Usa Notificaciones directamente, sin activar una habilidad.</p>
+        <label>Título<input aria-label="Título del aviso" maxLength={512} value={title} disabled={sending} onChange={event => { setTitle(event.target.value); deliveryId.current = null; }} /></label>
+        <label>Mensaje<textarea aria-label="Mensaje del aviso" maxLength={4096} value={message} disabled={sending} onChange={event => { setMessage(event.target.value); deliveryId.current = null; }} /></label>
+        <button className="primary" onClick={send} disabled={sending || !ready || (!title.trim() && !message.trim())}>{sending ? "Enviando…" : "Enviar notificación"}</button>
+      </section>
+    </div>
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
     <section className="panel notification-history">
       <div className="notification-history-head"><h3>Historial de notificaciones</h3><button onClick={() => setRefresh(value => value + 1)}>Actualizar historial</button></div>

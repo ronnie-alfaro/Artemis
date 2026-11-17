@@ -24,6 +24,7 @@ from app.agents.status import StatusAgent
 from app.agents.usenet import UsenetAgent
 from app.api.antigravity import install_antigravity_routes
 from app.api.codex import install_codex_routes
+from app.api.conversation_bridge import router as conversation_bridge_router
 from app.api.memory import install_memory_routes
 from app.api.minions import install_minion_routes
 from app.api.notifications import install_notification_routes
@@ -50,6 +51,7 @@ from app.application.orchestrator import (
 )
 from app.application.registry import AgentRegistry
 from app.application.reminders import ReminderService, ReminderWorker
+from app.application.rust_bridge import RustBridge
 from app.application.skill_sessions import SkillSessionRouter
 from app.application.webhook_notifications import WebhookNotificationWorker
 from app.application.whatsapp import WhatsAppAgentRuntime
@@ -94,6 +96,7 @@ from app.domain.whatsapp import (
 )
 from app.infrastructure.approval_state import PostgresApprovalStore
 from app.infrastructure.channel_config import PostgresChannelConfigurationStore
+from app.infrastructure.conversation_bridge import BridgeStore
 from app.infrastructure.config_cipher import ConfigurationEncryptionError, configured_cipher
 from app.infrastructure.karakeep_config import PostgresKarakeepConfigurationStore
 from app.infrastructure.karakeep_http import HttpKarakeepClient
@@ -389,8 +392,34 @@ def create_app() -> FastAPI:
             orchestrator.handle,
             orchestrator.approvals,  # type: ignore[attr-defined]
         )
+        bridge_url = os.getenv("ARTEMIS_BRIDGE_URL", "").strip().rstrip("/")
+        allowed_bridge_urls = tuple(dict.fromkeys(
+            url.strip().rstrip("/") for url in
+            os.getenv("ARTEMIS_BRIDGE_ALLOWED_URLS", "").split(",") if url.strip()
+        ))
+        bridge = None
+        if database_url:
+            bridge_store = BridgeStore(database_url)
+            await bridge_store.start()
+            registry: AgentRegistry = orchestrator.registry  # type: ignore[attr-defined]
+            conversation_agent = registry.get("conversation")
+            assert isinstance(conversation_agent, ConversationAgent)
+            conversation_agent.bridge_store = bridge_store
+            bridge = RustBridge(
+                bridge_store, bridge_url or "http://artemis-bridge:8091",
+                {"whatsapp": runtime, "telegram": telegram},
+                orchestrator.handle,
+                orchestrator.approvals.pending_for_conversation,  # type: ignore[attr-defined]
+                allowed_urls=allowed_bridge_urls, initially_enabled=bool(bridge_url),
+            )
+            conversation_agent.bridge_enabled = bridge.enabled
+            if orchestrator.skill_sessions:
+                orchestrator.skill_sessions.bridge_commands = bridge.enabled
+        app.state.conversation_bridge = bridge
         await runtime.start()
         await telegram.start()
+        if bridge:
+            bridge.start()
         await conversation_worker.start()
         if orchestrator.interaction_memory:
             await orchestrator.interaction_memory.start()
@@ -448,6 +477,12 @@ def create_app() -> FastAPI:
             yield
         finally:
             await app.state.minions.close()
+            if bridge:
+                await bridge.close()
+                conversation_agent.bridge_store = None
+                conversation_agent.bridge_enabled = None
+                if orchestrator.skill_sessions:
+                    orchestrator.skill_sessions.bridge_commands = None
             await conversation_worker.stop()
             if images:
                 await images.stop()
@@ -491,6 +526,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Artemis API", version="0.1.0", openapi_url="/api/v1/openapi.json", lifespan=lifespan
     )
+    app.include_router(conversation_bridge_router)
     app.state.orchestrator = orchestrator
     native = NativeTools(
         orchestrator.tools, orchestrator.approvals,  # type: ignore[attr-defined]

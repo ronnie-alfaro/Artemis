@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 from uuid import UUID
@@ -52,6 +52,7 @@ class SkillSessionRouter:
     approvals: ApprovalStore
     reset_conversation: Callable[[UUID], None]
     store: SkillSessionStore = field(default_factory=MemorySkillSessionStore)
+    bridge_commands: Callable[[], Awaitable[bool]] | None = None
 
     def _available(self, message: IncomingMessage) -> dict[str, str]:
         allowed = message.channel.allowed_capabilities
@@ -87,7 +88,18 @@ class SkillSessionRouter:
                 return self._status(message, "Codex no está asignado a esta conversación.")
             # This global command keeps the active skill and its pending operations intact.
             return message.model_copy(update={"required_capabilities": ["codex.assistant"]}), {}
-        if message.channel.natural_conversation and not message.required_capabilities:
+        if (message.channel.natural_conversation and self.bridge_commands
+                and await self.bridge_commands()):
+            text = message.content.strip()
+            command = text.casefold().strip("¿?¡!., ")
+            active = await self.store.get(message.channel.name, message.conversation_id)
+            if (active or _SWITCH.fullmatch(text) or help_target(text) is not None
+                    or command in {"ayuda", "help", "salir", "estado"} or text.startswith("/")):
+                message = message.model_copy(update={
+                    "channel": message.channel.model_copy(update={"natural_conversation": False}),
+                    "content": text.removeprefix("/"),
+                })
+        if message.channel.natural_conversation:
             return message.model_copy(update={
                 "required_capabilities": ["assistant.conversation"],
             }), {}

@@ -1,5 +1,8 @@
 # Conversación natural y PERSONA
 
+Para el enrutamiento configurable, la conmutación y el modo básico, consulta el
+[bridge conversacional en Rust](rust-bridge.md). Esta página describe la cola heredada.
+
 Los bots de WhatsApp y Telegram usan AGY por defecto. El usuario puede preguntar, pedir ayuda con Artemis o solicitar una acción sin activar una habilidad. AGY recibe únicamente el catálogo asignado a ese bot y traduce la petición a un comando del agente correspondiente. El servidor vuelve a comprobar la asignación antes de ejecutarlo y entrega el resultado a AGY para que lo explique con naturalidad.
 
 ## Configurar el bot

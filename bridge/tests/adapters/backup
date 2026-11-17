@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+import json
+import sys
+
+assert "Matrix encontrado" in json.load(sys.stdin)["prompt"]
+print(json.dumps({"capability":"","command":"","reply":"Encontré Matrix."}))

@@ -3,3 +3,13 @@
 @media(max-width:430px){.skill-nodes{grid-template-columns:1fr}.skill-node{min-height:64px;flex-direction:row;align-items:center;justify-content:space-between;gap:12px}.skill-node>small{margin:0;max-width:60%;text-align:right}.skill-node>strong{font-size:15px}.skill-head h3{font-size:22px}}
 
 .codex-jobs article{padding:18px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.codex-jobs article:last-child{border:0}.codex-jobs article>div{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.codex-jobs article small{font-size:12px}.codex-jobs details{margin:15px 0}.codex-jobs summary{cursor:pointer;color:var(--blue)}.codex-answer{white-space:pre-wrap}.codex-jobs article>button{margin-top:12px}
+
+.skill-nodes {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr));
+}
+.skill-node { justify-content: flex-start; overflow-wrap: anywhere; }
+.skill-node > small { margin-top: auto; padding-top: 6px; }
+@media (max-width: 430px) {
+  .skill-node { justify-content: space-between; }
+  .skill-node > small { margin-top: 0; padding-top: 0; }
+}
