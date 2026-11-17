@@ -69,7 +69,7 @@ describe("Artemis en español", () => {
   it("preserves skill binding by drag and drop and only persists optional capabilities", async () => {
     render(<App/>);
     fireEvent.click(await screen.findByRole("button", { name: "Agentes" }));
-    expect(await screen.findByLabelText("Mensaje de bienvenida")).toBeDefined();
+    expect(await screen.findByLabelText("PERSONA de WhatsApp")).toBeDefined();
     const button = screen.getByRole("button", { name: "Guardar habilidades asignadas" });
     expect(button).toHaveProperty("disabled", true);
     const zone = screen.getByText("Asignadas al agente").parentElement!;
@@ -81,14 +81,10 @@ describe("Artemis en español", () => {
     expect(JSON.parse(String(put?.[1].body))).toEqual({ capabilities: ["karakeep.bookmarks"] });
   });
 
-  it("supports keyboard-friendly assignment and saving a welcome message", async () => {
+  it("supports keyboard-friendly assignment of skills", async () => {
     render(<App/>);
     fireEvent.click(await screen.findByRole("button", { name: "Agentes" }));
-    const field = await screen.findByLabelText("Mensaje de bienvenida");
-    fireEvent.change(field, { target: { value: "Hola desde mi universo." } });
-    fireEvent.click(screen.getByRole("button", { name: "Guardar mensaje" }));
-    await screen.findByText("Mensaje de bienvenida guardado.");
-    expect(greeting).toBe("Hola desde mi universo.");
+    await screen.findByLabelText("PERSONA de WhatsApp");
     fireEvent.click(screen.getByRole("button", { name: "Buscar y guardar enlaces · Karakeep" }));
     expect(screen.getByRole("button", { name: "Guardar habilidades asignadas" })).toHaveProperty("disabled", false);
   });
