@@ -2,14 +2,18 @@ from __future__ import annotations
 
 # ruff: noqa: E501
 from typing import Any
+from urllib.parse import quote, urlencode
 
 import httpx
 
 from app.domain.seerr import (
     MediaType,
+    SeerrApiInput,
     SeerrClientError,
     SeerrClientErrorCode,
     SeerrMedia,
+    SeerrPendingRequest,
+    SeerrPendingRequests,
     SeerrRequestInput,
     SeerrRequestResult,
     SeerrRequestStatus,
@@ -25,8 +29,65 @@ class HttpSeerrClient:
         self._settings = settings
         self._client = client or httpx.AsyncClient(timeout=settings.timeout_seconds)
 
+    async def api_request(self, request: SeerrApiInput) -> object:
+        request = SeerrApiInput.model_validate(request.model_dump())
+        kwargs = {"json": request.body} if request.body is not None else {}
+        return await self._request(request.method, request.path, **kwargs)
+
+    async def test_connection(self) -> None:
+        payload = await self._request("GET", "/api/v1/auth/me")
+        if not isinstance(payload, dict) or not isinstance(payload.get("id"), int):
+            raise SeerrClientError(
+                SeerrClientErrorCode.UNEXPECTED, "Seerr returned an unexpected user response."
+            )
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def list_pending_requests(self, page: int = 1) -> SeerrPendingRequests:
+        if page < 1:
+            raise ValueError("page must be positive")
+        payload = await self._request(
+            "GET", f"/api/v1/request?filter=unavailable&take=10&skip={(page - 1) * 10}&sort=added"
+        )
+        try:
+            if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+                raise ValueError("Invalid request list")
+            results = []
+            for item in payload["results"]:
+                media_type = MediaType(item["type"])
+                tmdb_id = item["media"]["tmdbId"]
+                try:
+                    media = await self.get_media_details(media_type, tmdb_id)
+                except SeerrClientError as error:
+                    if error.code not in {
+                        SeerrClientErrorCode.UNEXPECTED, SeerrClientErrorCode.NOT_FOUND,
+                        SeerrClientErrorCode.TIMEOUT, SeerrClientErrorCode.NETWORK,
+                    }:
+                        raise
+                    # A broken TMDB detail must not hide the rest of the requests.
+                    media = SeerrMedia(
+                        media_type=media_type, tmdb_id=tmdb_id,
+                        title=f"TMDB {tmdb_id} (título no disponible)",
+                    )
+                results.append(SeerrPendingRequest(
+                    request_id=item["id"], media=media,
+                    status={1: "pendiente de aprobación", 2: "aprobada; pendiente de disponibilidad"}.get(
+                        item["status"], "pendiente"
+                    ),
+                ))
+            return SeerrPendingRequests(
+                results=results, total=payload["pageInfo"]["results"], page=page
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise SeerrClientError(
+                SeerrClientErrorCode.UNEXPECTED, "Seerr devolvió una lista de pendientes no válida."
+            ) from error
+
     async def search_media(self, query: str) -> SeerrSearchResult:
-        payload = await self._request("GET", "/api/v1/search", params={"query": query})
+        # Seerr rejects form-style '+' spaces; encode the query using RFC 3986.
+        encoded = urlencode({"query": query}, quote_via=quote)
+        payload = await self._request("GET", f"/api/v1/search?{encoded}")
         results = payload.get("results") if isinstance(payload, dict) else None
         if not isinstance(results, list):
             raise SeerrClientError(
@@ -65,9 +126,21 @@ class HttpSeerrClient:
             raise SeerrClientError(
                 SeerrClientErrorCode.UNEXPECTED, "Seerr returned an unexpected status response."
             )
-        return SeerrRequestStatus(
-            request_id=request_id, status=str(payload.get("status", "unknown"))
-        )
+        status = payload.get("status")
+        if type(status) is not int or status not in {1, 2, 3}:
+            raise SeerrClientError(
+                SeerrClientErrorCode.UNEXPECTED, "Seerr devolvió un estado no válido."
+            )
+        availability = payload.get("media", {})
+        availability = availability.get("status") if isinstance(availability, dict) else None
+        label = {1: "pendiente de aprobación", 2: "aprobada", 3: "rechazada"}[status]
+        media_label = {1: "desconocida", 2: "pendiente", 3: "en proceso",
+                       4: "parcialmente disponible", 5: "disponible", 6: "eliminada"}.get(
+                           availability if type(availability) is int else 0
+                       )
+        if media_label:
+            label += f" · contenido: {media_label}"
+        return SeerrRequestStatus(request_id=request_id, status=label)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> object:
         try:
@@ -79,11 +152,11 @@ class HttpSeerrClient:
             )
         except httpx.TimeoutException as error:
             raise SeerrClientError(
-                SeerrClientErrorCode.TIMEOUT, "Seerr did not respond in time."
+                SeerrClientErrorCode.TIMEOUT, "Seerr no respondió a tiempo."
             ) from error
         except httpx.RequestError as error:
             raise SeerrClientError(
-                SeerrClientErrorCode.NETWORK, "Artemis could not reach Seerr."
+                SeerrClientErrorCode.NETWORK, "Artemis no pudo conectar con Seerr."
             ) from error
         mapping = {
             401: SeerrClientErrorCode.UNAUTHORIZED,
@@ -101,20 +174,22 @@ class HttpSeerrClient:
                 except ValueError:
                     pass
             message = (
-                "Seerr already has this request."
+                "La solicitud ya existe en Seerr."
                 if request_id
-                else "Seerr could not complete this request."
+                else "Seerr no pudo completar la solicitud."
             )
             raise SeerrClientError(mapping[response.status_code], message, request_id)
         if response.is_error:
             raise SeerrClientError(
-                SeerrClientErrorCode.UNEXPECTED, "Seerr returned an unexpected error."
+                SeerrClientErrorCode.UNEXPECTED, "Seerr devolvió un error inesperado."
             )
+        if response.status_code == 204:
+            return None
         try:
             return response.json()
         except ValueError as error:
             raise SeerrClientError(
-                SeerrClientErrorCode.UNEXPECTED, "Seerr returned invalid JSON."
+                SeerrClientErrorCode.UNEXPECTED, "Seerr devolvió una respuesta JSON no válida."
             ) from error
 
     @staticmethod

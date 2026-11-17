@@ -54,6 +54,9 @@ class Channel(BaseModel):
     version: str = "v1"
     allowed_capabilities: list[str] = Field(default_factory=list)
     assistant_greeting: str | None = Field(default=None, max_length=1024)
+    assistant_persona: str | None = Field(default=None, max_length=8000)
+    natural_conversation: bool = False
+    agent_name: str | None = None
 
 
 class Conversation(BaseModel):
@@ -63,6 +66,8 @@ class Conversation(BaseModel):
 
 
 class IncomingMessage(BaseModel):
+    ephemeral_image_context: bool = False
+    image_context: str = Field(default="", max_length=32000)
     id: UUID = Field(default_factory=uuid4)
     conversation_id: UUID
     channel: Channel
@@ -71,7 +76,15 @@ class IncomingMessage(BaseModel):
     received_at: datetime = Field(default_factory=utcnow)
 
 
+class ReactionOption(BaseModel):
+    emoji: str
+    label: str
+    command: str
+
+
 class OutgoingMessage(BaseModel):
+    deferred: bool = False
+    reaction_options: list[ReactionOption] = Field(default_factory=list, max_length=10)
     conversation_id: UUID
     content: str
     execution_id: UUID
@@ -102,6 +115,7 @@ class AgentRequest(BaseModel):
 
 
 class AgentResult(BaseModel):
+    reaction_options: list[ReactionOption] = Field(default_factory=list, max_length=10)
     agent_name: str
     content: str
     sources: list[str] = Field(default_factory=list)
@@ -123,6 +137,8 @@ class AgentExecution(BaseModel):
 
 
 class Tool(BaseModel):
+    input_example: dict[str, object] = Field(default_factory=dict)
+    requires_approval: bool = True
     name: str
     description: str
     permissions: list[Permission] = Field(default_factory=list)

@@ -52,7 +52,11 @@ class ApprovalStore:
     ) -> ApprovalRequest:
         existing_id = self._idempotency.get(idempotency_key)
         if existing_id:
-            return self.get(existing_id)
+            existing = self.get(existing_id)
+            if existing.status not in {
+                ApprovalStatus.REJECTED, ApprovalStatus.EXPIRED
+            }:
+                return existing
         approval = ApprovalRequest(
             conversation_id=conversation_id,
             operation_id=uuid4(),

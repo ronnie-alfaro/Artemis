@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import asyncpg
-from cryptography.fernet import Fernet
 
 from app.domain.karakeep import KarakeepConfigurationInput, KarakeepSettings
+from app.infrastructure.config_cipher import ConfigurationCipher, configuration_cipher
 
 
 class PostgresKarakeepConfigurationStore:
-    def __init__(self, database_url: str, encryption_key: str) -> None:
+    def __init__(self, database_url: str, encryption_key: str | ConfigurationCipher) -> None:
         self._database_url = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-        self._fernet = Fernet(encryption_key.encode())
+        self._cipher = configuration_cipher(encryption_key)
         self._pool: asyncpg.Pool | None = None
 
     async def start(self) -> None:
@@ -31,7 +31,9 @@ class PostgresKarakeepConfigurationStore:
         return KarakeepSettings.model_validate(
             {
                 "base_url": row["base_url"],
-                "api_key": self._fernet.decrypt(bytes(row["encrypted_api_key"])).decode(),
+                "api_key": (
+                    await self._cipher.decrypt(bytes(row["encrypted_api_key"]), "karakeep")
+                ).decode(),
             }
         )
 
@@ -44,7 +46,7 @@ class PostgresKarakeepConfigurationStore:
             "VALUES(TRUE, $1, $2) ON CONFLICT(singleton) DO UPDATE SET "
             "base_url=EXCLUDED.base_url, encrypted_api_key=EXCLUDED.encrypted_api_key",
             str(settings.base_url).rstrip("/"),
-            self._fernet.encrypt(settings.api_key.encode()),
+            await self._cipher.encrypt(settings.api_key.encode(), "karakeep"),
         )
         return settings
 

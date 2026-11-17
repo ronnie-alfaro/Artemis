@@ -48,6 +48,8 @@ class WhatsAppInbound(BaseModel):
     timestamp: str
     type: WhatsAppMessageType
     text: str | None = None
+    reaction_emoji: str | None = None
+    reaction_message_id: str | None = None
     attachments: list[WhatsAppAttachment] = Field(default_factory=list)
 
     @property
@@ -85,10 +87,19 @@ class WhatsAppSkillSelection(BaseModel):
 DEFAULT_WHATSAPP_GREETING = "Hola, soy tu asistente de WhatsApp."
 
 
+DEFAULT_PERSONA = (
+    "Eres Artemis, un asistente cercano, claro e ingenioso. Conversa en español de forma natural. "
+    "Responde preguntas, ayuda a usar la aplicación y utiliza las habilidades disponibles "
+    "cuando sean útiles. Sé honesto sobre los resultados y no inventes acciones realizadas."
+)
+
+
 class WhatsAppAgentProfile(BaseModel):
     agent_name: str
     greeting: str = Field(default=DEFAULT_WHATSAPP_GREETING, min_length=1, max_length=1024)
+    persona: str = Field(default=DEFAULT_PERSONA, min_length=1, max_length=8000)
 
 
 class WhatsAppAgentProfileUpdate(BaseModel):
-    greeting: str = Field(min_length=1, max_length=1024)
+    greeting: str | None = Field(default=None, min_length=1, max_length=1024)
+    persona: str | None = Field(default=None, min_length=1, max_length=8000)

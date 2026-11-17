@@ -1,0 +1,22 @@
+[Unit]
+Description=Artemis - peticiones Codex desde WhatsApp
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=artemis-codex
+Environment=HOME=/root
+Environment=ARTEMIS_CODEX_STATE=/var/lib/artemis-codex
+Environment=ARTEMIS_SOURCE=/docker/artemis_platform
+Environment=PATH=/usr/local/lib/artemis-codex/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/python3 /usr/local/lib/artemis-codex/worker.py
+Restart=on-failure
+RestartSec=5
+UMask=0007
+KillMode=control-group
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

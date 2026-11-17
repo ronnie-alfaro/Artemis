@@ -1,0 +1,24 @@
+[Unit]
+Description=Artemis - Antigravity con escritura y comandos
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=artemis-codex
+Environment=HOME=/root
+Environment=ARTEMIS_ANTIGRAVITY_STATE=/var/lib/artemis-antigravity
+Environment=ARTEMIS_ANTIGRAVITY_CLI=/root/.local/bin/agy
+Environment=ARTEMIS_SOURCE=/docker/artemis_platform
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=/docker/artemis_platform
+ExecStart=/usr/bin/python3 /usr/local/lib/artemis-antigravity/antigravity_worker.py
+Restart=on-failure
+RestartSec=5
+UMask=0007
+KillMode=control-group
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

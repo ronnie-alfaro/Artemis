@@ -12,7 +12,7 @@ System policy, agent instructions, user messages, retrieved documents/web pages,
 - `READ` is automatic; `WRITE` needs approval by default; `DESTRUCTIVE` always needs explicit approval; `ADMIN` is disabled unless configured.
 - Approval records include operation, agent, tool, validated parameters, risk, reason, expiry, result, and durable audit state in PostgreSQL. Approval is a platform primitive, not a channel feature.
 - Inputs and outputs are validated at every boundary. Tool invocations have allowlisted implementations only.
-- No arbitrary shell, SSH, Docker socket, arbitrary filesystem, or unrestricted network tool exists. Homelab starts read-only and HTTP-target allowlisted.
+- Codex and Antigravity are explicit privileged exceptions: their host workers execute requested tasks as root, with filesystem writes, shell commands and network access, without additional approval. Their API containers share only job queues. Restrict skill assignment to authorized conversations. Homelab HTTP adapters remain target allowlisted.
 - Containers are non-root, use read-only filesystems/capability drops/no-new-privileges, and databases have no published port.
 - Secrets are injected through environment/secret mechanisms, excluded from git/database/logs, and represented by references rather than values in configuration.
 - Logs carry request/conversation/execution IDs, redact headers/secrets, and support private-prompt mode.
@@ -33,3 +33,20 @@ The optional adapter accepts only validated `SEERR_BASE_URL` and `SEERR_API_KEY`
 `seerr.create_request` is `WRITE`: ToolRegistry limits it to the `seerr` agent and requires an unexpired approval for that exact tool. “sí”/“confirmo” works only when exactly one current approval belongs to that conversation; it cannot authorize an old, rejected, expired or unrelated operation. Replayed selections reuse a conversation/media/requester idempotency key.
 
 The optional Karakeep adapter accepts only a validated base URL and API key. The key is sent solely as `Authorization: Bearer` and never appears in DTOs, traces, approvals, API responses or safe error messages. The connection check uses `GET /api/v1/lists`; `karakeep.create_bookmark` is a `WRITE` allowlisted to the `karakeep` agent and requires an unexpired approval for that exact URL.
+
+`notifications.send` is an explicit WRITE exception with `requires_approval=False`:
+it can only enqueue text for the operator-configured channel and a known WhatsApp
+participant. Registered skills and authenticated manual sends share that delivery
+service. It cannot accept arbitrary recipients or change notification settings.
+Other WRITE tools retain approval by default, and DESTRUCTIVE/ADMIN tools cannot
+bypass approval using this flag.
+
+`reminders.create` schedules time triggers or allowlisted READ tools only. The scheduler
+revalidates the tool at execution, uses a bounded timeout and a declarative result path
+without eval. READ invocations cannot execute tools that have been changed to WRITE.
+Reminders enqueue alerts through `notifications.send` using the configured destination.
+
+Codex uses `danger-full-access` and `approval_policy="never"`; Antigravity uses
+`--dangerously-skip-permissions`. Both operate on the real source tree. New jobs
+do not generate review-only patches. Interrupted jobs may leave partial changes and
+are never automatically replayed. See [Codex](codex.md) and [Antigravity](antigravity.md).

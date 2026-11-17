@@ -5,7 +5,8 @@ from uuid import UUID, uuid4
 
 import asyncpg
 
-from app.domain.whatsapp import DEFAULT_WHATSAPP_GREETING, WhatsAppInbound
+from app.domain.models import ReactionOption
+from app.domain.whatsapp import DEFAULT_PERSONA, DEFAULT_WHATSAPP_GREETING, WhatsAppInbound
 
 
 class PostgresWhatsAppStateStore:
@@ -20,6 +21,15 @@ class PostgresWhatsAppStateStore:
         async with self._pool.acquire() as connection:
             await connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS whatsapp_reaction_menus (
+                    agent_name TEXT NOT NULL,
+                    recipient_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    options JSONB NOT NULL,
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    consumed_by TEXT,
+                    PRIMARY KEY (agent_name, recipient_id)
+                );
                 CREATE TABLE IF NOT EXISTS whatsapp_poll_state (
                     agent_name TEXT PRIMARY KEY,
                     next_offset BIGINT NOT NULL,
@@ -50,6 +60,11 @@ class PostgresWhatsAppStateStore:
                     received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     PRIMARY KEY (agent_name, message_id)
                 );
+                CREATE TABLE IF NOT EXISTS whatsapp_agent_personas (
+                    agent_name TEXT PRIMARY KEY,
+                    persona TEXT NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
                 CREATE TABLE IF NOT EXISTS whatsapp_agent_profiles (
                     agent_name TEXT PRIMARY KEY,
                     greeting TEXT NOT NULL,
@@ -63,6 +78,12 @@ class PostgresWhatsAppStateStore:
         if self._pool is None:
             raise RuntimeError("WhatsApp state store is not started")
         return self._pool
+
+    async def purge_expired_images(self) -> None:
+        await self._connection_pool.execute(
+            "DELETE FROM whatsapp_inbox WHERE payload->>'type' = 'image' "
+            "AND received_at <= now() - interval '7 days'"
+        )
 
     async def get_offset(self, agent_name: str) -> int | None:
         value = await self._connection_pool.fetchval(
@@ -118,6 +139,12 @@ class PostgresWhatsAppStateStore:
             )
         )
 
+    async def participants_for(self, agent_name: str) -> list[str]:
+        rows = await self._connection_pool.fetch(
+            "SELECT participant_id FROM whatsapp_conversations WHERE agent_name=$1", agent_name
+        )
+        return [str(row["participant_id"]) for row in rows]
+
     async def conversation_for(self, agent_name: str, participant_id: str) -> UUID:
         conversation_id = uuid4()
         value = await self._connection_pool.fetchval(
@@ -169,6 +196,19 @@ class PostgresWhatsAppStateStore:
                     [(agent_name, capability) for capability in unique],
                 )
 
+    async def persona_for(self, agent_name: str) -> str:
+        value = await self._connection_pool.fetchval(
+            "SELECT persona FROM whatsapp_agent_personas WHERE agent_name=$1", agent_name,
+        )
+        return str(value) if value else DEFAULT_PERSONA
+
+    async def set_persona(self, agent_name: str, persona: str) -> None:
+        await self._connection_pool.execute(
+            "INSERT INTO whatsapp_agent_personas(agent_name, persona) VALUES($1,$2) "
+            "ON CONFLICT(agent_name) DO UPDATE SET persona=EXCLUDED.persona, updated_at=now()",
+            agent_name, persona,
+        )
+
     async def greeting_for(self, agent_name: str) -> str:
         greeting = await self._connection_pool.fetchval(
             "SELECT greeting FROM whatsapp_agent_profiles WHERE agent_name=$1", agent_name
@@ -188,3 +228,48 @@ class PostgresWhatsAppStateStore:
     async def aclose(self) -> None:
         if self._pool:
             await self._pool.close()
+
+    async def clear_reaction_menus(self, agent_name: str, recipient_id: str | None = None) -> None:
+        await self._connection_pool.execute(
+            "DELETE FROM whatsapp_reaction_menus WHERE agent_name=$1 "
+            "AND ($2::text IS NULL OR recipient_id=$2)", agent_name, recipient_id,
+        )
+
+    async def save_reaction_menu(
+        self, agent_name: str, recipient_id: str, message_id: str,
+        options: list[ReactionOption],
+    ) -> None:
+        await self._connection_pool.execute(
+            """
+            INSERT INTO whatsapp_reaction_menus
+                (agent_name, recipient_id, message_id, options, expires_at)
+            VALUES ($1, $2, $3, $4::jsonb, now() + interval '15 minutes')
+            ON CONFLICT (agent_name, recipient_id) DO UPDATE SET
+                message_id=EXCLUDED.message_id, options=EXCLUDED.options,
+                expires_at=EXCLUDED.expires_at, consumed_by=NULL
+            """, agent_name, recipient_id, message_id,
+            json.dumps([option.model_dump() for option in options]),
+        )
+
+    async def claim_reaction(
+        self, agent_name: str, inbound: WhatsAppInbound,
+    ) -> ReactionOption | None:
+        emoji = (inbound.reaction_emoji or "").replace("\ufe0f", "")
+        if not emoji or not inbound.reaction_message_id:
+            return None
+        # Claim only an offered emoji. Retries of the same inbound retain the selection.
+        options = await self._connection_pool.fetchval(
+            """
+            UPDATE whatsapp_reaction_menus SET consumed_by=$4
+            WHERE agent_name=$1 AND recipient_id=$2 AND message_id=$3
+                AND expires_at > now() AND (consumed_by IS NULL OR consumed_by=$4)
+                AND EXISTS (SELECT 1 FROM jsonb_array_elements(options) AS option
+                    WHERE replace(option->>'emoji', chr(65039), '')=$5)
+            RETURNING options
+            """, agent_name, inbound.sender_id, inbound.reaction_message_id, inbound.id, emoji,
+        )
+        if options is None:
+            return None
+        return next((option for value in json.loads(options)
+                     if (option := ReactionOption.model_validate(value)).emoji.replace("\ufe0f", "")
+                     == emoji), None)

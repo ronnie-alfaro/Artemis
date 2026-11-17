@@ -1,0 +1,7 @@
+abi <abi/4.0>,
+include <tunables/global>
+
+# Only Artemis' dedicated bubblewrap binary may create its sandbox namespaces.
+profile artemis-codex-bwrap /usr/local/lib/artemis-codex/bin/bwrap flags=(unconfined) {
+  userns,
+}

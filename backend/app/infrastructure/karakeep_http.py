@@ -19,6 +19,38 @@ class HttpKarakeepClient:
     async def list_lists(self) -> None:
         await self._request("GET", "/api/v1/lists")
 
+    async def search_bookmarks(self, query: str) -> list[KarakeepBookmark]:
+        response = await self._request(
+            "GET",
+            "/api/v1/bookmarks/search",
+            params={"q": query, "limit": 5, "sortOrder": "relevance", "includeContent": "false"},
+        )
+        if not isinstance(response, dict) or not isinstance(response.get("bookmarks"), list):
+            raise KarakeepClientError("unexpected", "Karakeep devolvió resultados no válidos.")
+        results = []
+        for item in response["bookmarks"][:5]:
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+                raise KarakeepClientError("unexpected", "Karakeep devolvió un bookmark no válido.")
+            content = item.get("content")
+            if not isinstance(content, dict):
+                raise KarakeepClientError("unexpected", "Karakeep devolvió contenido no válido.")
+            title = item.get("title") or content.get("title")
+            description = item.get("summary") or content.get("description")
+            url = content.get("url")
+            results.append(
+                KarakeepBookmark(
+                    id=item["id"],
+                    title=title if isinstance(title, str) else None,
+                    url=(
+                        url
+                        if isinstance(url, str) and url.startswith(("https://", "http://"))
+                        else None
+                    ),
+                    description=description if isinstance(description, str) else None,
+                )
+            )
+        return results
+
     async def create_link(self, url: str, title: str | None = None) -> KarakeepBookmark:
         payload: dict[str, str] = {"type": "link", "url": url}
         if title:
@@ -26,7 +58,7 @@ class HttpKarakeepClient:
         response = await self._request("POST", "/api/v1/bookmarks", json=payload)
         if not isinstance(response, dict) or not isinstance(response.get("id"), str):
             raise KarakeepClientError(
-                "unexpected", "Karakeep returned an unexpected bookmark response."
+                "unexpected", "Karakeep devolvió una respuesta de marcador no válida."
             )
         return KarakeepBookmark(
             id=response["id"],
@@ -43,14 +75,18 @@ class HttpKarakeepClient:
                 **kwargs,
             )
         except httpx.TimeoutException as error:
-            raise KarakeepClientError("timeout", "Karakeep did not respond in time.") from error
+            raise KarakeepClientError("timeout", "Karakeep no respondió a tiempo.") from error
         except httpx.RequestError as error:
-            raise KarakeepClientError("network", "Artemis could not reach Karakeep.") from error
+            raise KarakeepClientError(
+                "network", "Artemis no pudo conectar con Karakeep."
+            ) from error
         if response.status_code in {401, 403}:
-            raise KarakeepClientError("unauthorized", "Karakeep rejected the API key.")
+            raise KarakeepClientError("unauthorized", "Karakeep rechazó la clave de API.")
         if response.is_error:
-            raise KarakeepClientError("unexpected", "Karakeep returned an unexpected error.")
+            raise KarakeepClientError("unexpected", "Karakeep devolvió un error inesperado.")
         try:
             return response.json()
         except ValueError as error:
-            raise KarakeepClientError("unexpected", "Karakeep returned invalid JSON.") from error
+            raise KarakeepClientError(
+                "unexpected", "Karakeep devolvió una respuesta JSON no válida."
+            ) from error

@@ -28,6 +28,7 @@ class KarakeepBookmark(BaseModel):
     id: str
     url: str | None = None
     title: str | None = None
+    description: str | None = None
 
 
 class KarakeepClientError(Exception):
@@ -38,5 +39,7 @@ class KarakeepClientError(Exception):
 
 class KarakeepClient(Protocol):
     async def list_lists(self) -> None: ...
+
+    async def search_bookmarks(self, query: str) -> list[KarakeepBookmark]: ...
 
     async def create_link(self, url: str, title: str | None = None) -> KarakeepBookmark: ...

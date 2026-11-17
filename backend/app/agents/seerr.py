@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 # ruff: noqa: E501
+import json
 import re
 from dataclasses import dataclass, field
 from uuid import UUID
+
+from pydantic import ValidationError
 
 from app.application.approvals import ApprovalStore
 from app.domain.models import (
@@ -15,12 +18,13 @@ from app.domain.models import (
     ApprovalRequest,
     IncomingMessage,
     Permission,
+    ReactionOption,
     RiskLevel,
     ToolInvocation,
 )
-from app.domain.seerr import MediaType, SeerrClient, SeerrClientError
+from app.domain.seerr import MediaType, SeerrApiInput, SeerrClient, SeerrClientError
 from app.tools.registry import ToolRegistry
-from app.tools.seerr import SeerrRequestTool
+from app.tools.seerr import SeerrApiTool, SeerrRequestTool, safe_api_output
 
 
 @dataclass
@@ -31,21 +35,36 @@ class ConversationState:
 class SeerrAgent:
     definition = Agent(
         name="seerr",
-        version="0.1.0",
-        purpose="Selects Seerr media search and approved requests using typed capabilities.",
+        version="0.2.0",
+        purpose="Consulta pendientes y estados y permite usar la API completa de Seerr con confirmación de cambios.",
         capabilities=[
             AgentCapability(
                 name="seerr.media",
-                description="Search and request media via Seerr",
+                description="Busca, consulta pendientes y solicita películas y series en Seerr",
                 help_text=(
-                    "• Películas y series: escribe ‘quiero pedir <título>’. "
-                    "Te mostraré opciones; responde con el número y luego ‘confirmo’ para enviarla."
+                    "Seerr · API, películas y series:\n"
+                    "• Estado por ID: ‘estado solicitud 42’.\n"
+                    "• API completa: ‘seerr api GET /api/v1/request?filter=pending’.\n"
+                    "• Cambios: ‘seerr api POST /api/v1/request/42/approve’. "
+                    "Añade un cuerpo JSON cuando corresponda y confirma con ‘confirmo’.\n"
+                    "• Ver títulos pendientes: escribe ‘ver títulos pendientes’. "
+                    "Incluye solicitudes por aprobar y aún no disponibles. "
+                    "Usa ‘ver títulos pendientes página 2’ para continuar.\n"
+                    "• Buscar títulos: escribe ‘quiero pedir <título>’. "
+                    "Verás hasta 5 opciones con título, año, tipo e ID de TMDB.\n"
+                    "• Preparar una solicitud: responde con el número de una opción. "
+                    "Las series se solicitan completas.\n"
+                    "• Enviar la solicitud pendiente: escribe ‘confirmo’. "
+                    "Te devolveré su ID y estado.\n"
+                    "• Rechazar la solicitud pendiente: escribe ‘cancelar’ o ‘no’."
                 ),
             )
         ],
         permissions=[
             Permission(name="seerr.search.read", description="Search Seerr"),
+            Permission(name="seerr.request.read", description="List pending Seerr requests"),
             Permission(name="seerr.request.write", description="Request approved media"),
+            Permission(name="seerr.api", description="Read API and confirm API mutations"),
         ],
         risk_level=RiskLevel.WRITE,
     )
@@ -53,15 +72,24 @@ class SeerrAgent:
     def __init__(self, client: SeerrClient, tools: ToolRegistry, approvals: ApprovalStore) -> None:
         self._client, self._tools, self._approvals = client, tools, approvals
         self._states: dict[UUID, ConversationState] = {}
+        tools.register(SeerrApiTool(client), authorized_agents={"seerr"})
+
+    def reset_conversation(self, conversation_id: UUID) -> None:
+        self._states.pop(conversation_id, None)
 
     def set_client(self, client: SeerrClient) -> None:
         self._client = client
         self._tools.replace(SeerrRequestTool(client), authorized_agents={"seerr"})
+        self._tools.replace(SeerrApiTool(client), authorized_agents={"seerr"})
 
     def select(self, message: IncomingMessage) -> str | None:
         if message.conversation_id in self._states or self._approvals.pending_for_conversation(
             message.conversation_id, agent_name="seerr"
         ):
+            return "seerr.media"
+        if self._pending_page(message.content) is not None:
+            return "seerr.media"
+        if message.content.lower().startswith("seerr api") or self._status_id(message.content):
             return "seerr.media"
         intent = message.content.lower()
         if any(
@@ -76,6 +104,22 @@ class SeerrAgent:
         conversation_id = request.message.conversation_id
         state = self._states.setdefault(conversation_id, ConversationState())
         pending = self._approvals.pending_for_conversation(conversation_id, agent_name="seerr")
+        if content.lower().startswith("seerr api"):
+            return await self._api(request, content)
+        status_id = self._status_id(content)
+        if status_id:
+            try:
+                result = await self._client.get_request_status(status_id)
+            except SeerrClientError as error:
+                return self._response(request,
+                    f"No encontré la solicitud {status_id} en Seerr. Usa el ID de solicitud, no el de TMDB."
+                    if error.code.value == "not_found" else error.safe_message,
+                    {"seerr_error": error.code.value})
+            return self._response(request, f"Solicitud {result.request_id}: {result.status}.",
+                                  {"tool": "seerr.get_request_status"})
+        page = self._pending_page(content)
+        if page is not None:
+            return await self._list_pending(request, page)
         if self._is_confirmation(content):
             return await self._confirm(request, pending)
         if content.lower() in {"no", "rechazo", "cancelar", "cancela"} and len(pending) == 1:
@@ -85,6 +129,80 @@ class SeerrAgent:
         if state.candidates and content.isdigit():
             return await self._select(request, state, int(content))
         return await self._search(request, state, content)
+
+    @staticmethod
+    def _status_id(content: str) -> int | None:
+        match = re.fullmatch(
+            r"(?:ver\s+)?estado\s+(?:de\s+)?(?:(?:la\s+)?(?:solicitud|petici[oó]n)\s+)?"
+            r"(?:(?:por\s+)?id\s+)?"
+            r"#?([1-9][0-9]{0,9})(?:\s+(?:en|de)\s+seerr)?[.!?]?",
+            content.strip(), re.IGNORECASE,
+        )
+        return int(match.group(1)) if match else None
+
+    async def _api(self, request: AgentRequest, content: str) -> AgentResponse:
+        try:
+            parts = content.split(maxsplit=4)
+            if len(parts) < 4:
+                raise ValueError("missing method/path")
+            operation = SeerrApiInput.model_validate({
+                "method": parts[2].upper(), "path": parts[3],
+                "body": json.loads(parts[4]) if len(parts) == 5 else None,
+            })
+        except (ValueError, ValidationError):
+            return self._response(request, "Usa: seerr api MÉTODO /api/v1/ruta [JSON válido].")
+        if operation.method == "GET":
+            try:
+                result = await self._client.api_request(operation)
+            except SeerrClientError as error:
+                return self._response(request, error.safe_message)
+            return self._response(request, safe_api_output(result), {"tool": "seerr.api_read"})
+        approval = self._approvals.create(
+            conversation_id=request.message.conversation_id, agent_name="seerr",
+            tool_name="seerr.api_write", parameters={"operation": operation.model_dump_json()},
+            reason=f"API Seerr: {operation.method} {operation.path}",
+            idempotency_key=f"{request.message.id}:seerr.api_write",
+        )
+        await self._approvals.flush()
+        return self._response(request,
+            f"Preparado: {operation.method} {operation.path}\n"
+            f"Cuerpo: {safe_api_output(operation.body)}\n"
+            "Responde ‘confirmo’ para ejecutarlo o ‘cancelar’ para descartarlo.",
+            {"approval_id": str(approval.id)},
+        )
+
+    @staticmethod
+    def _pending_page(content: str) -> int | None:
+        match = re.fullmatch(
+            r"(?:(?:ver|listar|mostrar|muéstrame|muestrame)\s+)?"
+            r"(?:(?:los|las)\s+)?"
+            r"(?:(?:t[ií]tulos|solicitudes|pel[ií]culas|series)\s+)?pendientes"
+            r"(?:\s+(?:en|de)\s+seerr)?(?:\s+p[aá]gina\s+([1-9]\d{0,5}))?[.!?]?",
+            content.strip(), re.IGNORECASE,
+        )
+        return int(match.group(1) or 1) if match else None
+
+    async def _list_pending(self, request: AgentRequest, page: int) -> AgentResponse:
+        try:
+            result = await self._client.list_pending_requests(page)
+        except SeerrClientError as error:
+            return self._response(request, error.safe_message, {"seerr_error": error.code.value})
+        if not result.results:
+            message = (
+                "No hay títulos pendientes en Seerr." if result.total == 0
+                else "No hay resultados en esta página. Prueba ‘ver títulos pendientes’."
+            )
+        else:
+            lines = [
+                f"• {item.media.title} ({item.media.year or 'sin año'}) · "
+                f"{'película' if item.media.media_type is MediaType.MOVIE else 'serie'} · "
+                f"{item.status} · ID {item.request_id}"
+                for item in result.results
+            ]
+            message = f"Títulos pendientes en Seerr · página {page} · {result.total} solicitudes:\n" + "\n".join(lines)
+            if page * 10 < result.total:
+                message += f"\nPara continuar: ver títulos pendientes página {page + 1}"
+        return self._response(request, message, {"tool": "seerr.list_pending_requests"})
 
     async def _search(
         self, request: AgentRequest, state: ConversationState, content: str
@@ -107,6 +225,8 @@ class SeerrAgent:
             request,
             f"Encontré estas opciones:\n{options}\nResponde con el número que quieres solicitar.",
             {"tool": "seerr.search_media", "query": query},
+            reaction_options=[ReactionOption(emoji=f"{i}️⃣", label=title, command=str(i))
+                              for i, (_, _, title, _) in enumerate(state.candidates, 1)],
         )
 
     async def _select(
@@ -161,6 +281,8 @@ class SeerrAgent:
                 error.safe_message,
                 {"approval_id": str(approved.id), "approval_status": "failed"},
             )
+        if approved.tool_name == "seerr.api_write":
+            return self._response(request, f"Operación Seerr ejecutada: {result['response']}")
         return self._response(
             request,
             f"Solicitud creada en Seerr (ID {result['request_id']}, estado {result['status']}).",
@@ -172,6 +294,21 @@ class SeerrAgent:
         )
 
     async def approve_operation(self, approved: ApprovalRequest) -> dict[str, str]:
+        if approved.tool_name == "seerr.api_write":
+            operation = SeerrApiInput.model_validate_json(approved.parameters["operation"])
+            try:
+                api_result = await self._tools.invoke(ToolInvocation(
+                    tool_name="seerr.api_write", agent_name="seerr",
+                    input=operation.model_dump(), risk_level=RiskLevel.ADMIN,
+                    approval_id=approved.id,
+                ))
+            except SeerrClientError as error:
+                self._approvals.mark_failed(approved.id, {"error": error.code.value})
+                await self._approvals.flush()
+                raise
+            self._approvals.mark_executed(approved.id, api_result.output)
+            await self._approvals.flush()
+            return api_result.output
         params = approved.parameters
         payload = {
             "media_type": params["media_type"],
@@ -210,7 +347,7 @@ class SeerrAgent:
     def _query(content: str) -> str:
         return (
             re.sub(
-                r"^(quiero|puedo|podr[ií]as|me gustar[ií]a)?\s*(pedir|solicitar|ver)\s+",
+                r"^(quiero|puedo|podr[ií]as|me gustar[ií]a)?\s*(pedir|solicitar|ver|busca|buscar|búscame|buscame|search)\s+",
                 "",
                 content,
                 flags=re.IGNORECASE,
@@ -224,12 +361,14 @@ class SeerrAgent:
 
     @staticmethod
     def _response(
-        request: AgentRequest, content: str, metadata: dict[str, str] | None = None
+        request: AgentRequest, content: str, metadata: dict[str, str] | None = None,
+        reaction_options: list[ReactionOption] | None = None,
     ) -> AgentResponse:
         return AgentResponse(
             result=AgentResult(
                 agent_name="seerr",
                 content=content,
+                reaction_options=reaction_options or [],
                 metadata={"execution_id": str(request.execution_id), **(metadata or {})},
             )
         )

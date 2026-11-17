@@ -177,4 +177,342 @@ def test_unconfigured_seerr_returns_a_safe_configuration_error() -> None:
             )
         )
     )
-    assert "Seerr is not configured" in response.message.content
+    assert "Seerr no está configurado" in response.message.content
+
+
+def test_connection_checks_authenticated_user_without_search() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/auth/me"
+        assert request.headers["X-Api-Key"] == "test-key"
+        return httpx.Response(200, json={"id": 1})
+
+    client = HttpSeerrClient(
+        SeerrSettings.model_validate({"base_url": "http://seerr:5055", "api_key": "test-key"}),
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    asyncio.run(client.test_connection())
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_connection_rejects_invalid_credentials(status: int) -> None:
+    client = HttpSeerrClient(
+        SeerrSettings.model_validate({"base_url": "http://seerr:5055", "api_key": "invalid"}),
+        httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(status, json={"message": "denied"})
+        )),
+    )
+    with pytest.raises(SeerrClientError):
+        asyncio.run(client.test_connection())
+
+
+@pytest.mark.parametrize(
+    "query,encoded",
+    [
+        ("dog stars", b"query=dog%20stars"),
+        ("Amélie & Dog+Stars?", b"query=Am%C3%A9lie%20%26%20Dog%2BStars%3F"),
+    ],
+)
+def test_search_encodes_spaces_and_reserved_characters(query: str, encoded: bytes) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.query == encoded
+        assert request.url.params["query"] == query
+        return httpx.Response(200, json={"results": []})
+
+    client = HttpSeerrClient(
+        SeerrSettings.model_validate({"base_url": "http://seerr:5055", "api_key": "test-key"}),
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    assert asyncio.run(client.search_media(query)).results == []
+
+
+def test_pending_http_paginates_and_resolves_movie_and_tv_titles() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        if request.url.path == "/api/v1/request":
+            assert dict(request.url.params) == {
+                "filter": "unavailable", "take": "10", "skip": "10", "sort": "added"
+            }
+            return httpx.Response(200, json={"pageInfo": {"results": 12}, "results": [
+                {"id": 41, "type": "movie", "status": 1, "media": {"tmdbId": 1}},
+                {"id": 42, "type": "tv", "status": 2, "media": {"tmdbId": 2}},
+            ]})
+        if request.url.path == "/api/v1/movie/1":
+            return httpx.Response(200, json={"id": 1, "title": "Dune", "releaseDate": "2021-01-01"})
+        assert request.url.path == "/api/v1/tv/2"
+        return httpx.Response(200, json={"id": 2, "name": "Dark", "firstAirDate": "2017-01-01"})
+
+    client = HttpSeerrClient(
+        SeerrSettings(base_url="https://seerr.example", api_key="test-key"),
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = asyncio.run(client.list_pending_requests(2))
+    assert result.total == 12
+    assert result.page == 2
+    assert [item.media.title for item in result.results] == ["Dune", "Dark"]
+    assert result.results[0].status == "pendiente de aprobación"
+    assert "disponibilidad" in result.results[1].status
+
+
+@pytest.mark.parametrize("payload", [{}, {"results": [None]}, {"results": [], "pageInfo": {}}])
+def test_pending_rejects_malformed_response(payload: object) -> None:
+    client = HttpSeerrClient(
+        SeerrSettings(base_url="https://seerr.example", api_key="test-key"),
+        httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=payload)
+        )),
+    )
+    with pytest.raises(SeerrClientError) as error:
+        asyncio.run(client.list_pending_requests())
+    assert error.value.code == SeerrClientErrorCode.UNEXPECTED
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_pending_intent_is_read_only_and_preserves_local_approval(empty: bool) -> None:
+    from app.domain.seerr import SeerrPendingRequest, SeerrPendingRequests
+
+    class PendingSeerr(FakeSeerr):
+        async def list_pending_requests(self, page: int = 1) -> SeerrPendingRequests:
+            return SeerrPendingRequests(
+                results=[] if empty else [SeerrPendingRequest(
+                    request_id=42,
+                    media=SeerrMedia(media_type=MediaType.TV, tmdb_id=2, title="Dark"),
+                    status="pendiente de aprobación",
+                )], total=0 if empty else 11, page=page,
+            )
+
+    fake = PendingSeerr()
+    orchestrator, conversation = build_orchestrator(fake), uuid4()
+
+    def send(content: str):
+        return asyncio.run(orchestrator.handle(IncomingMessage(
+            conversation_id=conversation, channel=Channel(name="rest"), content=content,
+        )))
+
+    first = send("ver títulos pendientes")
+    assert first.executions[0].agent_name == "seerr"
+    assert ("No hay títulos pendientes" if empty else "Dark") in first.message.content
+    if not empty:
+        assert "página 2" in first.message.content
+    send("pedir Dune")
+    selected = send("1")
+    approval_id = UUID(selected.executions[0].result.metadata["approval_id"])
+    send("solicitudes pendientes")
+    assert orchestrator.approvals.get(approval_id).status.value == "pending"
+    assert fake.created == 0
+    assert "Solicitud creada" in send("confirmo").message.content
+
+
+def test_pending_unconfigured_error() -> None:
+    orchestrator = build_orchestrator()
+    response = asyncio.run(orchestrator.handle(IncomingMessage(
+        conversation_id=uuid4(), channel=Channel(name="rest"), content="ver títulos pendientes",
+    )))
+    assert "Seerr no está configurado" in response.message.content
+
+
+@pytest.mark.parametrize("path", [
+    "https://evil.example/api/v1/request", "//evil.example/api/v1/request",
+    "/api/v1/../auth", "/api/v1/%2e%2e/auth", "/api/v1/request#fragment",
+    "/api/v1/request\\evil", "/api/v1/request\r\nX-Test: yes",
+])
+def test_api_rejects_paths_outside_seerr(path: str) -> None:
+    from pydantic import ValidationError
+
+    from app.domain.seerr import SeerrApiInput
+
+    with pytest.raises(ValidationError):
+        SeerrApiInput(path=path)
+
+
+@pytest.mark.parametrize("method", ["GET", "POST", "PUT", "PATCH", "DELETE"])
+def test_api_http_methods_body_and_empty_response(method: str) -> None:
+    from app.domain.seerr import SeerrApiInput
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == method
+        assert request.url.path == "/api/v1/request/42"
+        assert request.url.params["filter"] == "pending"
+        assert request.headers["X-Api-Key"] == "test-key"
+        if method != "GET":
+            assert request.content == b'{"seasons":[1]}'
+        return httpx.Response(204) if method == "DELETE" else httpx.Response(200, json={"id": 42})
+
+    client = HttpSeerrClient(
+        SeerrSettings(base_url="https://seerr.example", api_key="test-key"),
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = asyncio.run(client.api_request(SeerrApiInput(
+        method=method, path="/api/v1/request/42?filter=pending",
+        body=None if method == "GET" else {"seasons": [1]},
+    )))
+    assert result == (None if method == "DELETE" else {"id": 42})
+
+
+def test_api_e2e_reads_confirmations_cancel_replay_and_redaction() -> None:
+    class ApiSeerr(FakeSeerr):
+        def __init__(self):
+            super().__init__()
+            self.calls = []
+
+        async def api_request(self, request):
+            self.calls.append(request)
+            return {"id": 42, "nested": {"apiKey": "sensitive-value"}}
+
+    fake = ApiSeerr()
+    orchestrator, conversation = build_orchestrator(fake), uuid4()
+
+    def send(content):
+        return asyncio.run(orchestrator.handle(IncomingMessage(
+            conversation_id=conversation, channel=Channel(name="rest"), content=content,
+        )))
+
+    assert "pending" in send("estado solicitud 42").message.content
+    read = send("seerr api GET /api/v1/request?filter=pending")
+    assert '"id": 42' in read.message.content
+    assert "sensitive-value" not in read.message.content
+    assert len(fake.calls) == 1
+    prepared = send('seerr api PUT /api/v1/request/42 {"seasons":[1]}')
+    assert len(fake.calls) == 1
+    approval_id = UUID(prepared.executions[0].result.metadata["approval_id"])
+    assert orchestrator.approvals.get(approval_id).status.value == "pending"
+    done = send("confirmo")
+    assert "ejecutada" in done.message.content
+    assert "sensitive-value" not in done.message.content
+    assert fake.calls[-1].body == {"seasons": [1]}
+    assert orchestrator.approvals.get(approval_id).status.value == "executed"
+    send("confirmo")
+    assert len(fake.calls) == 2
+    send("seerr api DELETE /api/v1/request/42")
+    send("cancelar")
+    send("confirmo")
+    assert len(fake.calls) == 2
+    send("seerr api POST /api/v1/request {invalid}")
+    assert len(fake.calls) == 2
+
+
+@pytest.mark.parametrize("status,label", [(1, "pendiente de aprobación"), (2, "aprobada"), (3, "rechazada")])
+def test_request_status_includes_availability(status: int, label: str) -> None:
+    client = HttpSeerrClient(
+        SeerrSettings(base_url="https://seerr.example", api_key="test-key"),
+        httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"status": status, "media": {"status": 5}})
+        )),
+    )
+    result = asyncio.run(client.get_request_status(42))
+    assert label in result.status
+    assert "contenido: disponible" in result.status
+
+
+def test_api_write_tool_requires_approval() -> None:
+    from app.tools.seerr import SeerrApiTool
+
+    tools = ToolRegistry(ApprovalStore())
+    tools.register(SeerrApiTool(FakeSeerr()), authorized_agents={"seerr"})
+    with pytest.raises(ApprovalRequired):
+        asyncio.run(tools.invoke(ToolInvocation(
+            tool_name="seerr.api_write", agent_name="seerr", risk_level=RiskLevel.ADMIN,
+            input={"method": "DELETE", "path": "/api/v1/request/42"},
+        )))
+
+
+@pytest.mark.parametrize("payload", [{}, {"status": True}, {"status": []}, {"status": 7}])
+def test_status_rejects_invalid_response(payload: object) -> None:
+    client = HttpSeerrClient(
+        SeerrSettings(base_url="https://seerr.example", api_key="test-key"),
+        httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=payload)
+        )),
+    )
+    with pytest.raises(SeerrClientError):
+        asyncio.run(client.get_request_status(42))
+
+
+def test_api_control_plane_approval_executes_once() -> None:
+    from fastapi.testclient import TestClient
+
+    from app.api.main import create_app
+
+    class ApiSeerr(FakeSeerr):
+        async def api_request(self, request):
+            self.created += 1
+            return None
+
+    fake = ApiSeerr()
+    app = create_app()
+    orchestrator = build_orchestrator(fake)
+    app.state.orchestrator = orchestrator
+    prepared = asyncio.run(orchestrator.handle(IncomingMessage(
+        conversation_id=uuid4(), channel=Channel(name="rest"),
+        content="seerr api DELETE /api/v1/request/42",
+    )))
+    approval_id = prepared.executions[0].result.metadata["approval_id"]
+    client = TestClient(app)
+    response = client.post(f"/api/v1/approvals/{approval_id}/approve")
+    assert response.status_code == 200
+    assert response.json()["status"] == "executed"
+    assert fake.created == 1
+    with pytest.raises(PermissionError, match="executed"):
+        client.post(f"/api/v1/approvals/{approval_id}/approve")
+    assert fake.created == 1
+
+
+@pytest.mark.parametrize("detail_status", [404, 500, 503])
+def test_pending_preserves_requests_when_a_title_is_unavailable(detail_status: int) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/request":
+            return httpx.Response(200, json={"pageInfo": {"results": 2}, "results": [
+                {"id": 183, "type": "movie", "status": 2, "media": {"tmdbId": 1}},
+                {"id": 182, "type": "tv", "status": 1, "media": {"tmdbId": 2}},
+            ]})
+        if request.url.path == "/api/v1/movie/1":
+            return httpx.Response(detail_status)
+        return httpx.Response(200, json={"id": 2, "name": "Dark"})
+
+    client = HttpSeerrClient(
+        SeerrSettings(base_url="https://seerr.example", api_key="test-key"),
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = asyncio.run(client.list_pending_requests())
+    assert result.total == 2
+    assert [item.request_id for item in result.results] == [183, 182]
+    assert result.results[0].media.title == "TMDB 1 (título no disponible)"
+    assert result.results[1].media.title == "Dark"
+
+
+@pytest.mark.parametrize("command", [
+    "estado solicitud 183", "estado de la petición #183", "estado 183",
+    "estado por ID 183", "estado solicitud ID 183", "ver estado ID 183 en Seerr",
+])
+def test_status_accepts_request_id_variants(command: str) -> None:
+    from app.agents.seerr import SeerrAgent
+
+    assert SeerrAgent._status_id(command) == 183
+
+
+def test_pending_does_not_hide_detail_authorization_errors() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/request":
+            return httpx.Response(200, json={"pageInfo": {"results": 1}, "results": [
+                {"id": 183, "type": "movie", "status": 2, "media": {"tmdbId": 1}},
+            ]})
+        return httpx.Response(403)
+
+    client = HttpSeerrClient(
+        SeerrSettings(base_url="https://seerr.example", api_key="test-key"),
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(SeerrClientError) as error:
+        asyncio.run(client.list_pending_requests())
+    assert error.value.code == SeerrClientErrorCode.FORBIDDEN
+
+
+def test_status_not_found_explains_which_id_to_use() -> None:
+    class MissingSeerr(FakeSeerr):
+        async def get_request_status(self, request_id: int) -> SeerrRequestStatus:
+            raise SeerrClientError(SeerrClientErrorCode.NOT_FOUND, "Error genérico")
+
+    response = asyncio.run(build_orchestrator(MissingSeerr()).handle(IncomingMessage(
+        conversation_id=uuid4(), channel=Channel(name="rest"), content="estado por ID 999",
+    )))
+    assert "No encontré la solicitud 999" in response.message.content
+    assert "TMDB" in response.message.content

@@ -1,142 +1,115 @@
-import { useEffect, useState, type DragEvent, type ReactElement } from "react";
+import { ChannelConfiguration } from "./ChannelConfiguration";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { Agents } from "./Agents";
+import { Skills } from "./Skills";
+import { Brain } from "./Brain";
+import { Tools } from "./Tools";
+import { Overview } from "./Overview";
+import { apiFetch } from "./api";
+import { Icon, PageHeader, StatusTag, type IconName } from "./ui";
 import "./styles.css";
 import "./brand.css";
 import "./skills.css";
 
-type View = "Overview" | "Agents" | "Skills" | "Flows" | "Channels" | "Runs" | "Approvals" | "Settings";
-const nav: View[] = ["Overview", "Agents", "Skills", "Channels", "Runs", "Approvals", "Settings"];
-const Header = ({ eyebrow, title }: { eyebrow: string; title: string; action?: string }) => <header><p>{eyebrow}</p><div className="head"><h1>{title}</h1></div></header>;
-const apiFetch = (path: string, init: RequestInit = {}) => {
-  const token = sessionStorage.getItem("artemis_admin_token");
-  const headers = new Headers(init.headers);
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(path, { ...init, headers });
-};
-
-function Overview() { return <><Header eyebrow="CONTROL PLANE" title="Your agent platform."/><div className="grid"><article className="hero"><label>READY TO CONNECT</label><h2>Build once. Deliver through any channel.</h2><p>Compose trusted skills, agents, and approval policy into versioned flows. Channels are delivery adapters—not orchestration logic.</p></article><Stat n="1" label="SYSTEM AGENT" text="Assistant status · always available"/><Stat n="1" label="CHANNEL" text="WhatsApp Agent API"/><Stat n="—" label="RUNS · 24 HOURS" text="Operational history appears in Runs"/></div><section className="panel"><label>GET STARTED</label><h3>From capability to channel</h3><ol className="steps"><Step n="1" title="Configure a skill" text="Add its endpoint and secret through the skill configuration."/><Step n="2" title="Attach skills" text="Drag approved capabilities onto the WhatsApp agent."/><Step n="3" title="Set the status response" text="Explain exactly what the agent can do for the user."/><Step n="4" title="Operate safely" text="Inspect runs and approve any write operation."/></ol></section></>; }
-const Stat = ({n,label,text}:{n:string;label:string;text:string}) => <article className="stat"><label>{label}</label><strong>{n}</strong><span>{text}</span></article>;
-const Step = ({n,title,text}:{n:string;title:string;text:string}) => <li><b>{n}</b><div><strong>{title}</strong><span>{text}</span></div></li>;
-type WhatsAppChannelStatus = {
-  configured: boolean;
-  agent_name: string | null;
-  running: boolean;
-  last_error: string | null;
-};
-
-function Agents() {
-  const [whatsapp, setWhatsApp] = useState<WhatsAppChannelStatus | null>(null);
-  const [availableSkills, setAvailableSkills] = useState<string[]>([]);
-  const [boundSkills, setBoundSkills] = useState<string[]>([]);
-  const [savedSkills, setSavedSkills] = useState<string[]>([]);
-  const [skillSaveStatus, setSkillSaveStatus] = useState<string | null>(null);
-  const [savingSkills, setSavingSkills] = useState(false);
-  const [greeting, setGreeting] = useState("");
-
-  useEffect(() => {
-    let active = true;
-    void apiFetch("/api/v1/channels/whatsapp")
-      .then((response) => response.ok ? response.json() as Promise<WhatsAppChannelStatus> : null)
-      .then(async (status) => {
-        if (!active) return;
-        setWhatsApp(status);
-        if (!status?.configured || !status.agent_name) return;
-        const [binding, profile] = await Promise.all([
-          apiFetch(`/api/v1/agents/whatsapp/${status.agent_name}/skills`),
-          apiFetch(`/api/v1/agents/whatsapp/${status.agent_name}/profile`),
-        ]);
-        if (binding.ok && active) {
-          const body = await binding.json() as { capabilities: string[]; available_capabilities: string[] };
-          setBoundSkills(body.capabilities); setSavedSkills(body.capabilities); setAvailableSkills(body.available_capabilities);
-        }
-        if (profile.ok && active) setGreeting((await profile.json() as { greeting: string }).greeting);
-      })
-      .catch(() => { if (active) setWhatsApp(null); });
-    return () => { active = false; };
-  }, []);
-
-  const rows = [["Assistant status", "Always-on response that explains available skills.", "healthy · system"]];
-  if (whatsapp?.configured) {
-    rows.push([
-      `WhatsApp Agent · ${whatsapp.agent_name ?? "unnamed"}`,
-      whatsapp.last_error ?? "Long-poll channel connected to the Artemis orchestrator.",
-      whatsapp.running ? "healthy · whatsapp" : "configured · starting",
-    ]);
-  }
-  const saveSkills = () => {
-    if (!whatsapp?.agent_name) return;
-    setSavingSkills(true); setSkillSaveStatus(null);
-    void apiFetch(`/api/v1/agents/whatsapp/${whatsapp.agent_name}/skills`, {
-      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capabilities: boundSkills.filter(skill => skill !== "assistant.status") }),
-    }).then(async response => {
-      if (!response.ok) { setSkillSaveStatus("Could not save skills. Try again."); return; }
-      const body = await response.json() as { capabilities: string[] };
-      setBoundSkills(body.capabilities); setSavedSkills(body.capabilities); setSkillSaveStatus("Assigned skills saved.");
-    }).catch(() => setSkillSaveStatus("Could not save skills. Try again.")).finally(() => setSavingSkills(false));
-  };
-  const moveSkill = (event: DragEvent, target: "bound" | "available") => {
-    event.preventDefault();
-    const capability = event.dataTransfer.getData("text/plain");
-    if (!availableSkills.includes(capability)) return;
-    setBoundSkills(target === "bound" ? [...new Set([...boundSkills, capability])] : boundSkills.filter(item => item !== capability));
-    setSkillSaveStatus("Unsaved skill changes.");
-  };
-  const saveGreeting = () => {
-    if (!whatsapp?.agent_name || !greeting.trim()) return;
-    void apiFetch(`/api/v1/agents/whatsapp/${whatsapp.agent_name}/profile`, {
-      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ greeting: greeting.trim() }),
-    }).then(async response => { if (response.ok) setGreeting((await response.json() as { greeting: string }).greeting); });
-  };
-  const skillLabel = (skill: string) => ({
-    "seerr.media": "Media requests · movies & series",
-    "karakeep.bookmarks": "Save links · Karakeep",
-  }[skill] ?? skill);
-  const skillsChanged = boundSkills.length !== savedSkills.length || boundSkills.some(skill => !savedSkills.includes(skill));
-  return <><Header eyebrow="RUNTIME IDENTITIES" title="Agents" action="New agent"/><List rows={rows}/>{whatsapp?.configured && <section className="panel skill-binding"><div><label>WHATSAPP STATUS RESPONSE</label><h3>WhatsApp Agent · {whatsapp.agent_name}</h3><p>Every ordinary message receives this editable welcome/status response. It lists only skills currently assigned below.</p><textarea aria-label="Status response" value={greeting} onChange={event => setGreeting(event.target.value)} /><button className="primary" onClick={saveGreeting}>Save message</button></div><div className="binding-lanes"><div className="binding-lane" onDragOver={event => event.preventDefault()} onDrop={event => moveSkill(event, "available")}><strong>Available skills</strong>{availableSkills.filter(skill => !boundSkills.includes(skill)).map(skill => <button draggable key={skill} onDragStart={event => event.dataTransfer.setData("text/plain", skill)}>{skillLabel(skill)}</button>)}</div><div className="binding-lane agent-drop" onDragOver={event => event.preventDefault()} onDrop={event => moveSkill(event, "bound")}><strong>Assigned to this agent</strong><button disabled>Assistant status · system response</button>{boundSkills.filter(skill => skill !== "assistant.status").map(skill => <button draggable key={skill} onDragStart={event => event.dataTransfer.setData("text/plain", skill)}>{skillLabel(skill)}</button>)}</div></div><div className="binding-save"><span role="status">{skillSaveStatus ?? (skillsChanged ? "Unsaved skill changes." : "All assigned skills are saved.")}</span><button className="primary" onClick={saveSkills} disabled={!skillsChanged || savingSkills}>{savingSkills ? "Saving…" : "Save assigned skills"}</button></div></section>}<p className="hint">Agents own instructions, model policy, memory scope, permissions and health. Skills are attached through explicit contracts.</p></>;
-}
-type SkillCapability = { name: string; method: string; endpoint: string; risk: "READ" | "WRITE"; description: string; inputs: string; output: string };
-type SkillDetail = { id: string; name: string; status: string; description: string; help: string; auth: string; availability: string; capabilities: SkillCapability[] };
-type SkillConfiguration = { configured: boolean; base_url: string | null; credential_source: string | null; last_test: string | null };
-const skills: SkillDetail[] = [
-  { id: "seerr", name: "Seerr media requests", status: "optional · enabled when configured", description: "Search and request movies or TV through Seerr. The agent selects it only when it holds seerr.media.", help: "WhatsApp: escribe ‘quiero pedir <título>’. Recibirás opciones; responde con su número y luego ‘confirmo’ para crear la solicitud.", auth: "X-Api-Key · never shown in runs", availability: "External business tool · no live connection verified", capabilities: [
-    { name: "search_media", method: "GET", endpoint: "/api/v1/search", risk: "READ", description: "Finds movies and TV candidates before any mutation.", inputs: "query", output: "title · year · type · TMDB ID" },
-    { name: "get_media_details", method: "GET", endpoint: "/api/v1/movie|tv/{tmdb_id}", risk: "READ", description: "Resolves an ambiguous candidate before a request is proposed.", inputs: "media_type · tmdb_id", output: "typed media details" },
-    { name: "create_request", method: "POST", endpoint: "/api/v1/request", risk: "WRITE", description: "Creates the selected request only after an expiring, concrete approval.", inputs: "media · requester · profile · seasons", output: "request ID · status" },
-    { name: "get_request_status", method: "GET", endpoint: "/api/v1/request/{request_id}", risk: "READ", description: "Reads the status of a request or an existing duplicate.", inputs: "request_id", output: "typed request status" },
-  ] },
-  { id: "karakeep", name: "Karakeep bookmarks", status: "optional · enabled when configured", description: "Save a link to your self-hosted Karakeep instance after explicit approval. The agent selects it only when it holds karakeep.bookmarks.", help: "WhatsApp: escribe ‘guarda https://ejemplo.com’. Artemis mostrará el enlace y solo lo añade a Karakeep si respondes ‘confirmo’.", auth: "Bearer API key · never shown in runs", availability: "Self-hosted external service · no live connection verified", capabilities: [
-    { name: "list_lists", method: "GET", endpoint: "/api/v1/lists", risk: "READ", description: "Verifies authenticated access without changing Karakeep data.", inputs: "none", output: "authenticated response" },
-    { name: "create_bookmark", method: "POST", endpoint: "/api/v1/bookmarks", risk: "WRITE", description: "Saves a supplied link only after an expiring, concrete approval.", inputs: "URL · optional title", output: "bookmark ID · URL" },
-  ] },
+type View = "Overview" | "Agents" | "Skills" | "Tools" | "Channels" | "Settings" | "Brain";
+type ToolId = "notifications" | "webhooks" | "reminders";
+type Route = { view: View; tool?: ToolId };
+type Preferences = { theme: "dark" | "light"; motion: "full" | "reduced"; density: "comfortable" | "compact" };
+const navigation: { id: View; label: string; icon: IconName; path: string; description: string }[] = [
+  { id: "Overview", label: "Inicio", icon: "home", path: "inicio", description: "Tus herramientas, de un vistazo" },
+  { id: "Agents", label: "Agentes", icon: "agents", path: "agentes", description: "Conversaciones y habilidades asignadas" },
+  { id: "Skills", label: "Habilidades", icon: "skills", path: "habilidades", description: "Seerr, Karakeep, Usenet, Codex y Antigravity" },
+  { id: "Tools", label: "Herramientas", icon: "tools", path: "herramientas", description: "Notificaciones, webhooks y recordatorios" },
+  { id: "Brain", label: "Cerebro", icon: "brain", path: "cerebro", description: "Memoria vectorial, herramientas nativas y minions" },
+  { id: "Channels", label: "Canales", icon: "channels", path: "canales", description: "Tus conexiones con WhatsApp y Telegram" },
+  { id: "Settings", label: "Ajustes", icon: "settings", path: "ajustes", description: "Haz que este espacio sea tuyo" },
 ];
-function Skills() {
-  const [selectedId, setSelectedId] = useState("seerr");
-  const [configuration, setConfiguration] = useState<SkillConfiguration | null>(null);
-  const [baseUrl, setBaseUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const selected = skills.find(skill => skill.id === selectedId) ?? skills[0];
-  const loadConfiguration = (skillId = selectedId) => void apiFetch(`/api/v1/skills/${skillId}/configuration`).then(async response => {
-    if (!response.ok) return;
-    const body = await response.json() as SkillConfiguration;
-    setConfiguration(body); setBaseUrl(body.base_url ?? "");
-  }).catch(() => undefined);
-  useEffect(() => { setConfiguration(null); setBaseUrl(""); setApiKey(""); loadConfiguration(selectedId); }, [selectedId]);
-  const saveConfiguration = () => {
-    if (!baseUrl.trim() || !apiKey.trim()) return;
-    void apiFetch(`/api/v1/skills/${selected.id}/configuration`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ base_url: baseUrl.trim(), api_key: apiKey.trim() }) })
-      .then(async response => { if (response.ok) { setConfiguration(await response.json() as SkillConfiguration); setApiKey(""); } });
-  };
-  const testConnection = () => void apiFetch(`/api/v1/skills/${selected.id}/configuration/test`, { method: "POST" }).then(async response => { if (response.ok) setConfiguration(await response.json() as SkillConfiguration); });
-  const skillName = selected.id === "seerr" ? "Seerr" : "Karakeep";
-  const urlPlaceholder = selected.id === "seerr" ? "https://seerr.your-network" : "https://karakeep.your-network";
-  return <><Header eyebrow="TRUSTED EXECUTION" title="Skills" action="Add skill"/><section className="skill-canvas"><div className="flowbar"><strong>Capability inventory</strong><span>typed · policy-aware</span><button>View contracts</button></div><div className="skill-nodes">{skills.map(skill => <button key={skill.id} onClick={() => setSelectedId(skill.id)} className={selected.id === skill.id ? "skill-node selected" : "skill-node"}><strong>{skill.name}</strong><small>{skill.capabilities.length} capabilities · {skill.status}</small></button>)}</div><div className="skill-inspector"><label>SELECTED SKILL</label><div className="skill-head"><div><h3>{selected.name}</h3><p>{selected.description}</p></div><em>{selected.status}</em></div><section className="skill-config"><div><strong>Connection configuration</strong><span>{configuration?.configured ? `Configured from ${configuration.credential_source}` : "Not configured"}</span></div><label>{skillName.toUpperCase()} URL<input aria-label={`${skillName} URL`} value={baseUrl} placeholder={urlPlaceholder} onChange={event => setBaseUrl(event.target.value)} /></label><label>API KEY<input aria-label={`${skillName} API key`} type="password" value={apiKey} placeholder={configuration?.configured ? "Stored securely — enter only to replace" : `Paste the ${skillName} API key`} onChange={event => setApiKey(event.target.value)} /></label><div className="config-actions"><button className="primary" onClick={saveConfiguration}>Save connection</button><button onClick={testConnection}>Test connection</button></div>{configuration?.last_test && <p role="status">{configuration.last_test}</p>}</section><section className="skill-config"><div><strong>How to use it</strong><span>Shown automatically by the WhatsApp agent</span></div><p>{selected.help}</p></section><div className="skill-meta"><span>AUTH · {selected.auth}</span><span>{selected.availability}</span></div><div className="capabilities">{selected.capabilities.map(capability => <article key={capability.name}><div className="capability-title"><strong>{capability.name}</strong><code>{capability.method} {capability.endpoint}</code><em className={capability.risk === "WRITE" ? "write" : "read"}>{capability.risk}</em></div><p>{capability.description}</p><dl><div><dt>INPUT</dt><dd>{capability.inputs}</dd></div><div><dt>OUTPUT</dt><dd>{capability.output}</dd></div></dl></article>)}</div></div></section><p className="hint">Capabilities describe allowlisted contracts, not arbitrary canvas code. WRITE operations always create a concrete approval.</p></>;
+function readRoute(): Route {
+  const [path, tool] = window.location.hash.replace(/^#\/?/, "").split("/");
+  const match = navigation.find(item => item.path === path);
+  return { view: match?.id ?? "Overview", ...(match?.id === "Tools" && ["notifications", "webhooks", "reminders"].includes(tool) ? { tool: tool as ToolId } : {}) };
 }
-function List({rows}:{rows:string[][]}) { return <section className="panel list">{rows.map(([title,description,status])=><article key={title}><div><h3>{title}</h3><span>{description}</span></div><em>{status}</em></article>)}</section>; }
-function Flows() { const [node,setNode]=useState("Inbound request"); const names=["Inbound request","Capability planner","Library Agent","Research Agent","Synthesis"]; return <><Header eyebrow="VERSIONED ORCHESTRATION" title="Flows" action="New flow"/><section className="canvas"><div className="flowbar"><strong>Library + research comparison</strong><span>Draft · validated</span><button>Publish</button></div><div className="nodes">{names.map((name,index)=><><button key={name} onClick={()=>setNode(name)} className={node===name?"node selected":"node"}>{name}<small>{index===0?"Channel message":index===1?"Execution plan":index===4?"Validated response":"Capability"}</small></button>{index<names.length-1&&<b key={`${name}-arrow`}>→</b>}</>)}</div><div className="inspector"><label>SELECTED NODE</label><h3>{node}</h3><p>Typed contract, declared permissions, timeout and retry policy are validated before publishing.</p></div></section><p className="hint">The builder is declarative: visual composition produces a reviewed execution DAG, not arbitrary code execution.</p></>; }
-function Channels() { return <><Header eyebrow="DELIVERY ADAPTERS" title="Channels" action="Add channel"/><List rows={[["WhatsApp Agent","Long-poll adapter. Create the agent in WhatsApp, then configure its secret-backed API token.","configured in deployment"]]}/></>; }
-function Runs() { return <><Header eyebrow="OPERATIONS" title="Runs"/><section className="empty"><h3>Operational history is private by default.</h3><p>WhatsApp inbound events are durably queued in PostgreSQL. A production deployment exposes metadata and audits here without exposing message content.</p></section></>; }
-function Approvals() { return <><Header eyebrow="HUMAN CONTROL" title="Approvals"/><section className="empty"><h3>Nothing requires your attention.</h3><p>Seerr create_request is WRITE: a concrete title, requester and expiry must be approved here. READ skills run automatically.</p></section></>; }
-function Settings() { return <><Header eyebrow="PLATFORM CONFIGURATION" title="Settings"/><List rows={[["Access control","Production deployment requires an operator token","Configure in deployment"],["MCP servers","No trusted MCP connections configured","Configure"],["Privacy & observability","Correlation IDs and Prometheus metrics enabled","Configure"]]}/></>; }
-function SignIn({ onAuthenticated }: { onAuthenticated: () => void }) { const [token, setToken] = useState(""); return <main className="sign-in"><section className="panel"><label>ARTEMIS CONTROL PLANE</label><h1>Operator access</h1><p>Enter the deployment’s operator token. It stays only in this browser session.</p><input aria-label="Operator token" type="password" value={token} onChange={event => setToken(event.target.value)} /><button className="primary" onClick={() => { if (token.trim()) { sessionStorage.setItem("artemis_admin_token", token.trim()); onAuthenticated(); } }}>Continue</button></section></main>; }
-export function App() { const [view,setView]=useState<View>("Overview"); const [authRequired, setAuthRequired] = useState(false); const [authenticated, setAuthenticated] = useState(Boolean(sessionStorage.getItem("artemis_admin_token"))); useEffect(() => { void fetch("/api/v1/auth/status").then(async response => { if (response.ok) setAuthRequired((await response.json() as { authentication_required: boolean }).authentication_required); }).catch(() => undefined); }, []); if (authRequired && !authenticated) return <SignIn onAuthenticated={() => setAuthenticated(true)} />; const pages:Record<View,ReactElement>={Overview:<Overview/>,Agents:<Agents/>,Skills:<Skills/>,Flows:<Flows/>,Channels:<Channels/>,Runs:<Runs/>,Approvals:<Approvals/>,Settings:<Settings/>}; return <main><aside><div className="mark">ARTEMIS<small>CONTROL PLANE</small></div><nav>{nav.map(item=><button key={item} onClick={()=>setView(item)} className={view===item?"active":""}>{item}</button>)}</nav><div className="foot"><i/>System healthy<br/><span>Local deployment</span></div></aside><section className="workspace">{pages[view]}</section></main>; }
-const root=document.getElementById("root"); if(root) createRoot(root).render(<App/>);
+function readPreferences(): Preferences {
+  try {
+    const saved = JSON.parse(localStorage.getItem("artemis_preferences") ?? "{}");
+    return { theme: saved.themeRevision === 2 && saved.theme === "dark" ? "dark" : "light", motion: saved.motion === "reduced" ? "reduced" : "full", density: saved.density === "compact" ? "compact" : "comfortable" };
+  } catch { return { theme: "light", motion: "full", density: "comfortable" }; }
+}
+function Clock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
+  return <time className="live-clock" dateTime={now.toISOString()}><span>{now.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}</span>{now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>;
+}
+function ChannelCard({ onAgents, provider }: { onAgents: () => void; provider: "whatsapp" | "telegram" }) {
+  const label = provider === "telegram" ? "Telegram" : "WhatsApp";
+  const [revision, setRevision] = useState(0);
+  const [channel, setChannel] = useState<{ configured: boolean; running: boolean; agent_name: string | null; last_error: string | null } | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => { let active = true; void apiFetch(`/api/v1/channels/${provider}`).then(async response => { if (!response.ok) throw new Error("status"); const value = await response.json(); if (active) setChannel(value); }).catch(() => { if (active) setError(true); }); return () => { active = false; }; }, [provider, revision]);
+  return <section className="panel channel-card"><div className="channel-emblem"><img src={`/channels/${provider}.svg`} alt={`Logo de ${label}`} width={48} height={48}/></div><div className="channel-copy"><div className="section-heading"><h2>{label}</h2><StatusTag tone={channel?.running ? "good" : "neutral"}>{error ? "Sin verificar" : !channel ? "Consultando…" : channel.running ? "En marcha" : channel.configured ? "Iniciando" : "Sin configurar"}</StatusTag></div><p>{provider === "telegram" ? "Conecta tu bot y conversa con las habilidades de Artemis en un chat privado." : "Tu acceso directo a las habilidades, las notificaciones y los recordatorios de Artemis."}</p><div className="channel-facts"><div><span>AGENTE</span><strong>{channel?.agent_name ?? "Sin asignar"}</strong></div><div><span>CONVERSACIÓN</span><strong>{channel?.configured ? "Personal" : "Pendiente de configuración"}</strong></div></div>{channel?.last_error && <p role="status">{channel.last_error}</p>}{error && <p role="alert">No se pudo comprobar el canal. Inténtalo de nuevo más tarde.</p>}<ChannelConfiguration provider={provider} onApplied={() => setRevision(value => value + 1)}/><button className="primary" onClick={onAgents}>Configurar mi agente<Icon name="arrow" size={16}/></button></div></section>;
+}
+function Channels({ onAgents }: { onAgents: () => void }) {
+  return <><PageHeader eyebrow="DE LA IDEA A TU CONVERSACIÓN" title="Canales" description="Artemis trabaja aquí. Tú recibes lo importante donde ya estás."/><ChannelCard provider="whatsapp" onAgents={onAgents}/><ChannelCard provider="telegram" onAgents={onAgents}/><section className="panel channel-guide"><p className="eyebrow">TRES MENSAJES PARA EMPEZAR</p><div className="chat-examples"><code>¿Qué puedes hacer?</code><code>Busca Matrix para descargar</code><code>¿Cómo van mis descargas?</code></div><p>Habla con naturalidad. El bot utiliza AGY y las habilidades que tenga asignadas, sin activar menús.</p></section></>;
+}
+
+function Settings({ preferences, onChange }: { preferences: Preferences; onChange: (value: Preferences) => void }) {
+  const update = (value: Partial<Preferences>) => onChange({ ...preferences, ...value });
+  return <><PageHeader eyebrow="ESTE ESPACIO ES TUYO" title="Ajustes" description="Elige cómo se ve y cómo se mueve tu central de mando."/><div className="settings-grid"><section className="panel"><span className="settings-icon"><Icon name="moon"/></span><h3>Apariencia</h3><p>De madrugada o a plena luz. Elige tu ambiente.</p><div className="preference-options"><button aria-pressed={preferences.theme === "dark"} onClick={() => update({ theme: "dark" })}><Icon name="moon"/>Tema oscuro</button><button aria-pressed={preferences.theme === "light"} onClick={() => update({ theme: "light" })}><Icon name="sun"/>Tema claro</button></div></section><section className="panel"><span className="settings-icon"><Icon name="bolt"/></span><h3>Movimiento</h3><p>Animaciones con personalidad, a tu ritmo. También respetamos las preferencias de tu dispositivo.</p><div className="preference-options"><button aria-pressed={preferences.motion === "full"} onClick={() => update({ motion: "full" })}>Animaciones completas</button><button aria-pressed={preferences.motion === "reduced"} onClick={() => update({ motion: "reduced" })}>Menos movimiento</button></div></section><section className="panel"><span className="settings-icon"><Icon name="home"/></span><h3>Densidad</h3><p>Más aire o más información en el mismo espacio.</p><div className="preference-options"><button aria-pressed={preferences.density === "comfortable"} onClick={() => update({ density: "comfortable" })}>Cómoda</button><button aria-pressed={preferences.density === "compact"} onClick={() => update({ density: "compact" })}>Compacta</button></div></section><section className="panel personal-note"><Icon name="check"/><h3>Tu panel, tus preferencias</h3><p>Estos ajustes se guardan en este navegador. Tus conexiones, mensajes y recordatorios siguen en tu servidor.</p><div className="key-hint"><kbd>Ctrl</kbd><span>+</span><kbd>K</kbd><span>para moverte por Artemis</span></div></section></div></>;
+}
+function CommandPalette({ close, navigate }: { close: () => void; navigate: (view: View, tool?: ToolId) => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+  const destinations = [...navigation.map(item => ({ ...item, view: item.id, tool: undefined as ToolId | undefined })),
+    { id: "reminders", label: "Recordatorios", description: "Un mensaje y su disparador", icon: "clock" as IconName, view: "Tools" as View, tool: "reminders" as ToolId },
+    { id: "notifications", label: "Notificaciones", description: "Envía un aviso directamente", icon: "bell" as IconName, view: "Tools" as View, tool: "notifications" as ToolId },
+    { id: "webhooks", label: "Webhooks", description: "Eventos de tus aplicaciones", icon: "webhook" as IconName, view: "Tools" as View, tool: "webhooks" as ToolId }];
+  const fold = (value: string) => value.toLocaleLowerCase("es").normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  const search = fold(query.trim());
+  const score = (label: string) => fold(label) === search ? 0 : fold(label).startsWith(search) ? 1 : fold(label).includes(search) ? 2 : 3;
+  const results = destinations.filter(item => fold(`${item.label} ${item.description}`).includes(search)).sort((a, b) => score(a.label) - score(b.label));
+  useEffect(() => { if (dialog.current?.showModal) dialog.current.showModal(); else dialog.current?.setAttribute("open", ""); input.current?.focus(); }, []);
+  const open = (item: typeof results[number]) => { navigate(item.view, item.tool); close(); };
+  return <dialog ref={dialog} className="command-palette" aria-label="Buscar en Artemis" onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === dialog.current) close(); }}><div className="command-search"><Icon name="search"/><input ref={input} aria-label="Buscar sección o herramienta" placeholder="¿A dónde vamos?" value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && results[0]) open(results[0]); }}/><button aria-label="Cerrar búsqueda" onClick={close}><kbd>Esc</kbd></button></div><p className="command-caption">ENCUENTRA TUS HERRAMIENTAS</p><div className="command-results">{results.map(item => <button key={item.id} onClick={() => open(item)}><span><Icon name={item.icon}/></span><div><strong>{item.label}</strong><small>{item.description}</small></div><Icon name="arrow" size={16}/></button>)}{!results.length && <p>No encontré esa sección. Prueba con otro nombre.</p>}</div></dialog>;
+}
+function SignIn({ onAuthenticated }: { onAuthenticated: () => void }) {
+  const [token, setToken] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true); setError("");
+    try { const response = await fetch("/api/v1/channels/whatsapp", { headers: { Authorization: `Bearer ${token.trim()}` } }); if (!response.ok) throw new Error("auth"); sessionStorage.setItem("artemis_admin_token", token.trim()); onAuthenticated(); }
+    catch { setError("No se pudo iniciar sesión. Comprueba tu clave y la conexión."); }
+    finally { setBusy(false); }
+  };
+  return <main className="sign-in"><div className="login-glow"/><section className="panel"><div className="login-brand"><img src="/artemis-logo.png?v=2" alt=""/><span>ARTEMIS</span></div><p className="eyebrow">TUS HERRAMIENTAS, EN UN SOLO LUGAR</p><h1>Bienvenido<br/>a tu panel.</h1><p>Introduce tu clave de acceso para entrar al panel.</p><form onSubmit={event => { event.preventDefault(); void submit(); }}><label>Clave de acceso<input aria-label="Clave de acceso" type="password" required value={token} autoComplete="current-password" onChange={event => setToken(event.target.value)}/></label><button className="primary" disabled={busy || !token.trim()} type="submit">{busy ? "Entrando…" : "Entrar a Artemis"}<Icon name="arrow" size={18}/></button></form>{error && <p role="alert">{error}</p>}</section></main>;
+}
+export function App() {
+  const [route, setRoute] = useState<Route>(readRoute);
+  const [preferences, setPreferences] = useState<Preferences>(readPreferences);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authenticated, setAuthenticated] = useState(Boolean(sessionStorage.getItem("artemis_admin_token")));
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [health, setHealth] = useState<"checking" | "online" | "offline">("checking");
+  useEffect(() => { void fetch("/api/v1/auth/status").then(async response => { if (response.ok) setAuthRequired((await response.json()).authentication_required); }).catch(() => undefined).finally(() => setAuthChecked(true)); }, []);
+  useEffect(() => { let active = true; const check = async () => { try { const response = await fetch("/api/v1/health"); if (active) setHealth(response.ok ? "online" : "offline"); } catch { if (active) setHealth("offline"); } }; void check(); const timer = window.setInterval(() => { void check(); }, 20000); return () => { active = false; window.clearInterval(timer); }; }, []);
+  useEffect(() => { document.documentElement.dataset.theme = preferences.theme; document.documentElement.dataset.motion = preferences.motion; document.documentElement.dataset.density = preferences.density; localStorage.setItem("artemis_preferences", JSON.stringify({ ...preferences, themeRevision: 2 })); }, [preferences]);
+  useEffect(() => { const handler = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setSearchOpen(value => !value); } if (event.key === "Escape") setSearchOpen(false); }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, []);
+  useEffect(() => { const handler = () => setRoute(readRoute()); window.addEventListener("hashchange", handler); return () => window.removeEventListener("hashchange", handler); }, []);
+  const navigate = (view: View, tool?: ToolId) => { setRoute({ view, tool }); const path = navigation.find(item => item.id === view)!.path; window.history.replaceState(null, "", `#/${path}${view === "Tools" && tool ? `/${tool}` : ""}`); setSearchOpen(false); };
+  if (!authChecked) return <main className="boot-screen"><img src="/artemis-logo.png?v=2" alt="Artemis"/><p>Conectando tus herramientas…</p></main>;
+  if (authRequired && !authenticated) return <SignIn onAuthenticated={() => setAuthenticated(true)}/>;
+  const selected = navigation.find(item => item.id === route.view)!;
+  const pages: Record<View, ReactNode> = {
+    Overview: <Overview navigate={navigate}/>, Agents: <Agents apiFetch={apiFetch}/>, Skills: <Skills apiFetch={apiFetch}/>,
+    Tools: <Tools apiFetch={apiFetch} activeTool={route.tool ?? "notifications"} onSelectTool={tool => navigate("Tools", tool)}/>,
+    Brain: <Brain/>,
+    Channels: <Channels onAgents={() => navigate("Agents")}/>, Settings: <Settings preferences={preferences} onChange={setPreferences}/>,
+  };
+  return <main className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}><a href="#contenido" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("contenido")?.focus(); }}>Ir al contenido</a><aside className="sidebar"><button className="brand" onClick={() => navigate("Overview")} aria-label="Artemis, ir al inicio"><img src="/artemis-logo.png?v=2" alt=""/><span>ARTEMIS<small>Artemis platform - Admin Console</small></span><span className="brand-spark">✦</span></button><div className="workspace-chip"><span className="workspace-avatar">A</span><div><strong>Mi espacio</strong><small>Espacio personal</small></div><Icon name="check" size={15}/></div><span className="nav-caption">EXPLORAR</span><nav aria-label="Navegación principal">{navigation.map((item, index) => <button key={item.id} onClick={() => navigate(item.id)} className={route.view === item.id ? "active" : ""} aria-current={route.view === item.id ? "page" : undefined} aria-label={item.label} title={collapsed ? item.label : undefined}><Icon name={item.icon}/><span>{item.label}</span><small>0{index + 1}</small>{route.view === item.id && <i className="nav-beam"/>}</button>)}</nav><div className="sidebar-note"><span>✦</span><p>«Cualquier forma, sensación, percepción, formación mental o conciencia —pasada, futura o presente, interna o externa, burda o sutil— debe ser vista como realmente es con sabiduría correcta: "Esto no es mío, esto no soy yo, esto no es mi ser"»</p><div className="signal-line"/></div><div className="sidebar-footer"><span className={`connection-dot ${health}`}/><div><strong>{health === "online" ? "Servidor conectado" : health === "offline" ? "Servidor sin respuesta" : "Comprobando servidor"}</strong><small>Tu servidor, tus reglas.</small></div></div></aside><section className="app-main"><div className="topbar"><div className="topbar-breadcrumb"><button aria-label={collapsed ? "Expandir menú" : "Contraer menú"} className="icon-button collapse-button" onClick={() => setCollapsed(value => !value)}><Icon name="menu" size={19}/></button><span>Mi espacio</span><b>/</b><strong>{selected.label}</strong></div><div className="topbar-actions"><button className="search-trigger" onClick={() => setSearchOpen(true)}><Icon name="search" size={16}/><span>Buscar algo…</span><kbd>Ctrl K</kbd></button><Clock/><button className="icon-button" aria-label={preferences.theme === "dark" ? "Activar tema claro" : "Activar tema oscuro"} onClick={() => setPreferences(value => ({ ...value, theme: value.theme === "dark" ? "light" : "dark" }))}><Icon name={preferences.theme === "dark" ? "sun" : "moon"} size={19}/></button></div></div><div className="workspace" id="contenido" tabIndex={-1}><div className="view-stage" key={route.view}>{pages[route.view]}</div><footer className="workspace-footer"><span>ARTEMIS <b>✦</b> TODO EN UN SOLO LUGAR</span><StatusTag tone={health === "online" ? "good" : "neutral"}>{health === "online" ? "Servidor en línea" : health === "offline" ? "Revisar conexión" : "Comprobando"}</StatusTag></footer></div></section>{searchOpen && <CommandPalette close={() => setSearchOpen(false)} navigate={navigate}/>}</main>;
+}
+const root = document.getElementById("root");
+if (root) createRoot(root).render(<App/>);

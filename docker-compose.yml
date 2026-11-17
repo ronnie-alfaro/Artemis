@@ -1,18 +1,35 @@
 services:
   artemis-api:
     build: ./backend
+    group_add: ["10002"]
+    volumes:
+      - memory-data:/data/memory
+      - ${ARTEMIS_CODEX_STATE_DIR:-/var/lib/artemis-codex}/queue:/data/codex
+      - ${ARTEMIS_ANTIGRAVITY_STATE_DIR:-/var/lib/artemis-antigravity}/queue:/data/antigravity
     environment:
+      ARTEMIS_MEMORY_DIR: /data/memory
+      ARTEMIS_VISION_URL: ${ARTEMIS_VISION_URL:-}
+      ARTEMIS_VISION_MODEL: ${ARTEMIS_VISION_MODEL:-}
+      ARTEMIS_ANTIGRAVITY_QUEUE_DIR: /data/antigravity
+      ARTEMIS_CODEX_QUEUE_DIR: /data/codex
+      ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT: ${ARTEMIS_WEBHOOK_WHATSAPP_RECIPIENT:-}
+      ARTEMIS_WEBHOOK_TOKEN: ${ARTEMIS_WEBHOOK_TOKEN:-}
       ARTEMIS_LOG_LEVEL: ${ARTEMIS_LOG_LEVEL:-INFO}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       SEERR_BASE_URL: ${SEERR_BASE_URL:-}
       SEERR_API_KEY: ${SEERR_API_KEY:-}
+      ARTEMIS_KMS_KEY_ID: ${ARTEMIS_KMS_KEY_ID:-}
+      AWS_REGION: ${AWS_REGION:-}
       ARTEMIS_CONFIG_ENCRYPTION_KEY: ${ARTEMIS_CONFIG_ENCRYPTION_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
       WHATSAPP_AGENT_TOKEN: ${WHATSAPP_AGENT_TOKEN:-}
       WHATSAPP_AGENT_NAME: ${WHATSAPP_AGENT_NAME:-primary}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-artemis}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-artemis}
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [internal, whatsapp-egress]
+    networks: [internal, whatsapp-egress, seerr]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -47,9 +64,13 @@ services:
       timeout: 5s
       retries: 5
 volumes:
+  memory-data:
   postgres-data:
 networks:
   internal:
     internal: true
   edge: {}
   whatsapp-egress: {}
+  seerr:
+    external: true
+    name: seerr_default

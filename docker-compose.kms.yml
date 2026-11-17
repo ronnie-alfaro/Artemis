@@ -1,0 +1,16 @@
+# Optional SDK profile mount for a server outside AWS.
+# docker compose -f docker-compose.yml -f docker-compose.kms.yml up -d --build
+services:
+  artemis-api:
+    volumes:
+      - type: bind
+        source: ${ARTEMIS_AWS_CONFIG_DIR:?set ARTEMIS_AWS_CONFIG_DIR}
+        target: /run/artemis-aws
+        read_only: true
+    environment:
+      ARTEMIS_KMS_KEY_ID: ${ARTEMIS_KMS_KEY_ID:?set ARTEMIS_KMS_KEY_ID}
+      AWS_REGION: ${AWS_REGION:?set AWS_REGION}
+      AWS_PROFILE: ${AWS_PROFILE:-artemis}
+      AWS_CONFIG_FILE: /run/artemis-aws/config
+      AWS_SHARED_CREDENTIALS_FILE: /run/artemis-aws/credentials
+      AWS_EC2_METADATA_DISABLED: "true"

@@ -1,0 +1,13 @@
+.brain-panel { padding: 24px; }
+.brain-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-block: 12px; }
+.brain-toolbar button { padding: 10px 16px; }
+.brain-toolbar button[aria-pressed="true"] { background: var(--accent, #359a86); color: white; }
+.brain-toolbar label { display: grid; gap: 8px; }
+.brain-toolbar input, .brain-toolbar select { padding: 10px; max-width: 100%; }
+.brain-toolbar form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.brain-record { padding-block: 20px; border-top: 1px solid var(--border, #8884); overflow-wrap: anywhere; }
+.brain-document { white-space: pre-wrap; }
+.brain-panel pre { max-height: 280px; overflow: auto; font-size: 12px; padding: 12px; background: #8881; }
+.brain-panel summary { cursor: pointer; padding-block: 8px; }
+.brain-vector { width: 100%; height: 110px; background: #8881; border-radius: 8px; }
+@media (max-width: 600px) { .brain-panel { padding: 16px; } .brain-toolbar label { width: 100%; } }

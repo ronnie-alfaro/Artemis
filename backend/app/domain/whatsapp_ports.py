@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from app.domain.models import OutgoingMessage
+from app.domain.models import OutgoingMessage, ReactionOption
 from app.domain.whatsapp import WhatsAppInbound, WhatsAppUpdateBatch
 
 
@@ -13,13 +13,31 @@ class WhatsAppClient(Protocol):
     async def mark_read(self, message_id: str, typing: bool = False) -> None: ...
 
     async def send_text(
-        self, recipient_id: str, message: OutgoingMessage, reply_to: str
+        self, recipient_id: str, message: OutgoingMessage, reply_to: str | None = None
     ) -> str: ...
 
     async def aclose(self) -> None: ...
 
 
 class WhatsAppStateStore(Protocol):
+    async def clear_reaction_menus(
+        self, agent_name: str, recipient_id: str | None = None
+    ) -> None: ...
+
+    async def save_reaction_menu(
+        self,
+        agent_name: str,
+        recipient_id: str,
+        message_id: str,
+        options: list[ReactionOption],
+    ) -> None: ...
+
+    async def claim_reaction(
+        self,
+        agent_name: str,
+        inbound: WhatsAppInbound,
+    ) -> ReactionOption | None: ...
+
     async def start(self) -> None: ...
 
     async def get_offset(self, agent_name: str) -> int | None: ...
@@ -32,6 +50,8 @@ class WhatsAppStateStore(Protocol):
 
     async def completed(self, agent_name: str, message_id: str) -> bool: ...
 
+    async def participants_for(self, agent_name: str) -> list[str]: ...
+
     async def conversation_for(self, agent_name: str, participant_id: str) -> UUID: ...
 
     async def mark_completed(self, agent_name: str, message: WhatsAppInbound) -> None: ...
@@ -39,6 +59,10 @@ class WhatsAppStateStore(Protocol):
     async def capabilities_for(self, agent_name: str) -> list[str]: ...
 
     async def set_capabilities(self, agent_name: str, capabilities: list[str]) -> None: ...
+
+    async def persona_for(self, agent_name: str) -> str: ...
+
+    async def set_persona(self, agent_name: str, persona: str) -> None: ...
 
     async def greeting_for(self, agent_name: str) -> str: ...
 
