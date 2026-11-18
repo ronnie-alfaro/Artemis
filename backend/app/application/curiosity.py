@@ -54,6 +54,15 @@ def _collect_parameters(*levels: Any) -> list[str]:
     return list(names)[:64]
 
 
+def parse_document(specification: str) -> dict[str, Any]:
+    document = json.loads(
+        specification, object_pairs_hook=_unique_keys, parse_constant=_invalid_constant
+    )
+    if not isinstance(document, dict):
+        raise ValueError("Expected an object")
+    return document
+
+
 def analyze_specification(payload: ExplorationInput) -> Exploration:
     fingerprint = hashlib.sha256(payload.specification.encode()).hexdigest()
     result = Exploration(
@@ -65,11 +74,7 @@ def analyze_specification(payload: ExplorationInput) -> Exploration:
         history=[ExplorationStatus.DISCOVERED],
     )
     try:
-        document = json.loads(
-            payload.specification, object_pairs_hook=_unique_keys, parse_constant=_invalid_constant
-        )
-        if not isinstance(document, dict):
-            raise ValueError("Expected an object")
+        document = parse_document(payload.specification)
         canonical = json.dumps(
             document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
         )

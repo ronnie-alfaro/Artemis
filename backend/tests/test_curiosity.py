@@ -1,6 +1,6 @@
 import json
 import os
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -115,7 +115,141 @@ async def test_postgres_api_reuses_report_after_store_restart() -> None:
             recent = await client.get(endpoint)
             assert recent.json()[0]["id"] == report["id"]
     finally:
-        await store.pool.execute(
-            "DELETE FROM curiosity_explorations WHERE objective=$1", objective
+        await store.pool.execute("DELETE FROM curiosity_explorations WHERE objective=$1", objective)
+        await store.aclose()
+
+
+@pytest.mark.asyncio
+async def test_chat_mount_call_and_retire_with_postgres(monkeypatch: pytest.MonkeyPatch) -> None:
+    from httpx import ByteStream, MockTransport, Request, Response
+
+    from app.agents.curiosity import CuriosityAgent
+    from app.agents.status import StatusAgent
+    from app.application.approvals import ApprovalStore
+    from app.application.orchestrator import CapabilityPlanner, DAGExecutor, Orchestrator
+    from app.application.registry import AgentRegistry
+    from app.application.skill_sessions import SkillSessionRouter
+    from app.domain.models import Channel, IncomingMessage
+    from app.domain.skills import DEFAULT_PRESENTATIONS
+    from app.tools.curiosity import CuriosityTool
+    from app.tools.registry import ToolRegistry
+
+    database_url = os.getenv("ARTEMIS_TEST_CURIOSITY_DATABASE_URL")
+    if not database_url:
+        pytest.skip("A dedicated PostgreSQL test database is required")
+
+    spec_url = "https://docs.example.invalid/openapi.json"
+    read_url = "https://api.example.invalid/v1/status"
+    calls: list[str] = []
+    mock_status = 200
+    output = {"ready": True}
+    specification = {
+        "openapi": "3.1.0",
+        "servers": [{"url": "https://api.example.invalid/v1"}],
+        "components": {
+            "schemas": {
+                "Status": {
+                    "type": "object",
+                    "properties": {"ready": {"type": "boolean"}},
+                    "required": ["ready"],
+                }
+            }
+        },
+        "paths": {
+            "/status": {
+                "get": {
+                    "operationId": "readStatus",
+                    "responses": {
+                        "200": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/Status"}
+                                }
+                            }
+                        },
+                    },
+                }
+            },
+            "/other": {"get": {"operationId": "notAllowed"}},
+        },
+    }
+
+    def respond(request: Request) -> Response:
+        assert request.method == "GET"
+        assert "authorization" not in request.headers
+        url = str(request.url)
+        calls.append(url)
+        assert url in {spec_url, read_url}
+        return Response(
+            200 if url == spec_url else mock_status,
+            headers={"Content-Type": "application/json"},
+            stream=ByteStream(json.dumps(specification if url == spec_url else output).encode()),
         )
+
+    monkeypatch.setenv("ARTEMIS_CURIOSITY_ALLOWED_URLS", f"{spec_url},{read_url}")
+    adapter = CuriosityTool(MockTransport(respond))
+    store = PostgresExplorationStore(database_url)
+    await store.start()
+    adapter.store = store
+    approvals = ApprovalStore()
+    tools = ToolRegistry(approvals)
+    tools.register(adapter, authorized_agents={"curiosity"})
+    agents = AgentRegistry()
+    agents.register(CuriosityAgent(tools, adapter))
+    agents.register(StatusAgent())
+    orchestrator = Orchestrator(
+        CapabilityPlanner(agents),
+        DAGExecutor(agents),
+        SkillSessionRouter(DEFAULT_PRESENTATIONS, approvals, lambda _: None),
+    )
+    conversation = uuid4()
+
+    async def chat(
+        text: str,
+        conversation_id: UUID = conversation,
+        *,
+        allowed: bool = True,
+        synthetic: bool = False,
+    ) -> str:
+        response = await orchestrator.handle(
+            IncomingMessage(
+                conversation_id=conversation_id,
+                channel=Channel(
+                    name="telegram",
+                    natural_conversation=True,
+                    allowed_capabilities=["curiosity.api"] if allowed else [],
+                ),
+                content=text,
+                required_capabilities=["curiosity.api"] if synthetic else [],
+            )
+        )
+        return response.message.content
+
+    try:
+        command = f"Curiosidad integrar sistema {spec_url}"
+        assert "no está asignada" in await chat(command, allowed=False)
+        await chat(command, synthetic=True)
+        assert not calls
+        mounted = await chat(command)
+        assert "Curiosidad consultar sistema readStatus" in mounted
+        assert calls == [spec_url]
+        await store.aclose()
+        store = PostgresExplorationStore(database_url)
+        await store.start()
+        adapter.store = store
+        assert "true" in await chat("Curiosidad consultar sistema readStatus")
+        assert "en esta conversación" in await chat(
+            "Curiosidad consultar sistema readStatus", uuid4()
+        )
+        output.clear()
+        assert "contrato JSON" in await chat("Curiosidad consultar sistema readStatus")
+        mock_status = 401
+        assert "HTTP 401" in await chat("Curiosidad consultar sistema readStatus")
+        monkeypatch.setenv("ARTEMIS_CURIOSITY_ALLOWED_URLS", spec_url)
+        assert "no está autorizado" in await chat("Curiosidad consultar sistema readStatus")
+        assert calls == [spec_url, read_url, read_url, read_url]
+        assert "retirada" in await chat("Curiosidad retirar sistema")
+        assert await store.mounted("telegram", conversation, "sistema") is None
+    finally:
+        await store.unmount("telegram", conversation, "sistema")
         await store.aclose()

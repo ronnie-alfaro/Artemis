@@ -1,8 +1,9 @@
+import re
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 
 class ExplorationStatus(StrEnum):
@@ -49,3 +50,25 @@ class Exploration(ExplorationSummary):
     operations: list[DeclaredOperation] = Field(default_factory=list)
     reason: str | None = None
     history: list[ExplorationStatus]
+
+
+class MountedRead(BaseModel):
+    operation: str
+    url: str
+    response_schema: dict[str, JsonValue]
+
+
+class MountedAPI(BaseModel):
+    name: str
+    operations: list[MountedRead]
+
+
+CAPABILITY = "curiosity.api"
+CHAT_CONTEXT_KEY = "curiosity_direct_command"
+COMMAND_NAME = r"[A-Za-z0-9_-]{1,64}"
+
+
+def chat_command(content: str) -> str | None:
+    text = content.strip()
+    prefix = re.match(r"^/?curiosidad\s+", text, re.I)
+    return text[prefix.end() :] if prefix else None

@@ -7,6 +7,7 @@ services:
       - ${ARTEMIS_CODEX_STATE_DIR:-/var/lib/artemis-codex}/queue:/data/codex
       - ${ARTEMIS_ANTIGRAVITY_STATE_DIR:-/var/lib/artemis-antigravity}/queue:/data/antigravity
     environment:
+      ARTEMIS_CURIOSITY_ALLOWED_URLS: ${ARTEMIS_CURIOSITY_ALLOWED_URLS:-}
       ARTEMIS_BRIDGE_URL: ${ARTEMIS_BRIDGE_URL:-}
       ARTEMIS_BRIDGE_ALLOWED_URLS: ${ARTEMIS_BRIDGE_ALLOWED_URLS:-}
       ARTEMIS_MEMORY_DIR: /data/memory

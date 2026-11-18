@@ -88,7 +88,7 @@ Los minions ejecutan trabajos acotados con concurrencia limitada, timeout y esta
 
 ### Curiosidad
 
-La consola permite analizar especificaciones Swagger y OpenAPI aportadas por el operador y conservar el inventario declarado en PostgreSQL. [Consulta los formatos, la API y los límites actuales.](docs/curiosity.md)
+Desde WhatsApp o Telegram, Curiosidad monta operaciones de lectura de un documento OpenAPI y las conserva para volver a consultarlas en ese chat. [Consulta los comandos, permisos y formatos admitidos.](docs/curiosity.md)
 
 ## Persistencia y límites operativos
 

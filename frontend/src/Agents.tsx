@@ -91,6 +91,7 @@ function ChannelAgent({ apiFetch, channel, bridgeRevision }: Props & { channel: 
     } catch { setPersonaStatus("No se pudo guardar la PERSONA."); }
   };
   const skillLabel = (skill: string) => ({
+    "curiosity.api": "Integrar APIs · Curiosidad",
     "seerr.media": "Películas y series · Seerr",
     "github.repositories": "Repositorios y actividad · GitHub",
     "karakeep.bookmarks": "Buscar y guardar enlaces · Karakeep",

@@ -16,6 +16,9 @@ class SkillPresentation(BaseModel):
 
 
 DEFAULT_PRESENTATIONS = {
+    "curiosity": SkillPresentation(
+        name="Curiosidad", description="Integra y consulta APIs de lectura desde el chat."
+    ),
     "github": SkillPresentation(
         name="GitHub", description="Consulta repositorios, commits, ramas, issues y pull requests."
     ),

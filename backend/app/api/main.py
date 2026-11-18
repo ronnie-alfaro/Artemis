@@ -17,6 +17,7 @@ from starlette.responses import Response
 
 from app.agents.antigravity import AntigravityAgent
 from app.agents.codex import CodexAgent
+from app.agents.curiosity import CuriosityAgent
 from app.agents.github import GitHubAgent
 from app.agents.karakeep import KarakeepAgent
 from app.agents.seerr import SeerrAgent
@@ -62,6 +63,7 @@ from app.domain.channels import (
     ChannelConnection,
     Provider,
 )
+from app.domain.curiosity import CAPABILITY as CURIOSITY_CAPABILITY
 from app.domain.karakeep import (
     KarakeepClient,
     KarakeepClientError,
@@ -118,6 +120,7 @@ from app.infrastructure.whatsapp_http import HttpWhatsAppClient
 from app.infrastructure.whatsapp_state import PostgresWhatsAppStateStore
 from app.tools.antigravity import AntigravityTool
 from app.tools.codex import CodexTool
+from app.tools.curiosity import CuriosityTool
 from app.tools.github import GitHubTool
 from app.tools.karakeep import KarakeepBookmarkTool
 from app.tools.memory_contracts import register_memory_contracts
@@ -159,6 +162,10 @@ def build_orchestrator(
     tools.register(GitHubTool(), authorized_agents={"github", "control-plane"})
     github_agent = GitHubAgent(tools)
     agents.register(github_agent)
+    curiosity_tool = CuriosityTool()
+    tools.register(curiosity_tool, authorized_agents={"curiosity"})
+    curiosity_agent = CuriosityAgent(tools, curiosity_tool)
+    agents.register(curiosity_agent)
     skill_agents = (
         github_agent, seerr_agent, karakeep_agent, usenet_agent, codex_agent, antigravity_agent,
     )
@@ -173,7 +180,7 @@ def build_orchestrator(
     status_agent = StatusAgent(
         {
             capability.name: capability.help_text or capability.description
-            for agent in skill_agents
+            for agent in (*skill_agents, curiosity_agent)
             for capability in agent.definition.capabilities
         }
     )
@@ -208,6 +215,7 @@ def build_orchestrator(
         CapabilityPlanner(agents, selectors), DAGExecutor(agents), sessions,
         interaction_memory=InteractionMemory(memory, (codex_queue, antigravity_queue)),
     )
+    orchestrator.curiosity_tool = curiosity_tool  # type: ignore[attr-defined]
     orchestrator.reminders = reminders  # type: ignore[attr-defined]
     orchestrator.notifications = notifications  # type: ignore[attr-defined]
     orchestrator.approvals = approvals  # type: ignore[attr-defined]
@@ -309,6 +317,7 @@ def create_app() -> FastAPI:
         curiosity_store = PostgresExplorationStore(database_url) if database_url else None
         if curiosity_store:
             await curiosity_store.start()
+        orchestrator.curiosity_tool.store = curiosity_store  # type: ignore[attr-defined]
         app.state.curiosity = curiosity_store
         if database_url:
             approval_store = PostgresApprovalStore(database_url)
@@ -695,6 +704,7 @@ def create_app() -> FastAPI:
 
     def whatsapp_assignable_capabilities() -> list[str]:
         configured_capabilities = {
+            CURIOSITY_CAPABILITY: getattr(app.state, "curiosity", None) is not None,
             "github.repositories": bool(os.getenv("GITHUB_TOKEN")),
             "seerr.media": app.state.seerr_configured,
             "karakeep.bookmarks": app.state.karakeep_configured,

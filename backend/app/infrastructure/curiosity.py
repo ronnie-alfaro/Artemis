@@ -2,7 +2,7 @@ from uuid import UUID
 
 import asyncpg
 
-from app.domain.curiosity import Exploration, ExplorationSummary
+from app.domain.curiosity import Exploration, ExplorationSummary, MountedAPI
 
 
 class PostgresExplorationStore:
@@ -26,6 +26,15 @@ class PostgresExplorationStore:
             await pool.execute("""
                 CREATE INDEX IF NOT EXISTS curiosity_explorations_recent
                     ON curiosity_explorations (created_at DESC, id DESC)
+            """)
+            await pool.execute("""
+                CREATE TABLE IF NOT EXISTS curiosity_mounts (
+                    channel TEXT NOT NULL,
+                    conversation UUID NOT NULL,
+                    name TEXT NOT NULL,
+                    adapter JSONB NOT NULL,
+                    PRIMARY KEY (channel, conversation, name)
+                )
             """)
         except BaseException:
             await pool.close()
@@ -81,3 +90,39 @@ class PostgresExplorationStore:
         if self._pool is not None:
             await self._pool.close()
             self._pool = None
+
+    async def mount(self, channel: str, conversation: UUID, api: MountedAPI) -> None:
+        await self.pool.execute(
+            """
+            INSERT INTO curiosity_mounts (channel, conversation, name, adapter)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (channel, conversation, name) DO UPDATE SET adapter=EXCLUDED.adapter
+        """,
+            channel,
+            conversation,
+            api.name,
+            api.model_dump_json(),
+        )
+
+    async def mounted(self, channel: str, conversation: UUID, name: str) -> MountedAPI | None:
+        value = await self.pool.fetchval(
+            """
+            SELECT adapter FROM curiosity_mounts
+            WHERE channel=$1 AND conversation=$2 AND name=$3
+        """,
+            channel,
+            conversation,
+            name,
+        )
+        return MountedAPI.model_validate_json(value) if value is not None else None
+
+    async def unmount(self, channel: str, conversation: UUID, name: str) -> bool:
+        result = await self.pool.execute(
+            """
+            DELETE FROM curiosity_mounts WHERE channel=$1 AND conversation=$2 AND name=$3
+        """,
+            channel,
+            conversation,
+            name,
+        )
+        return bool(result == "DELETE 1")
