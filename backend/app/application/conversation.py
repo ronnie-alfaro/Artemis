@@ -7,11 +7,13 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from typing import Any
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from app.application.antigravity import AntigravityQueue
 from app.application.approvals import ApprovalStore
 from app.application.registry import AgentRegistry
+from app.domain.curiosity import CAPABILITY as CURIOSITY_CAPABILITY
+from app.domain.curiosity import catalog_has_query
 from app.domain.models import (
     Agent,
     AgentCapability,
@@ -48,6 +50,7 @@ class ConversationAgent:
         approvals: ApprovalStore,
     ) -> None:
         self.queue, self.registry, self.approvals = queue, registry, approvals
+        self.learned_queries: Callable[[str, UUID], Awaitable[list[str]]] | None = None
         self.bridge_store: BridgeStore | None = None
         self.bridge_enabled: Callable[[], Awaitable[bool]] | None = None
 
@@ -63,6 +66,21 @@ class ConversationAgent:
             if capability.name in allowed and not capability.name.startswith("assistant.")
         ]
 
+    async def catalog_for(
+        self, message: IncomingMessage, allowed: list[str]
+    ) -> list[dict[str, str]]:
+        skills = self.catalog([name for name in allowed if name != CURIOSITY_CAPABILITY])
+        if CURIOSITY_CAPABILITY in allowed and self.learned_queries:
+            queries = await self.learned_queries(message.channel.name, message.conversation_id)
+            if queries:
+                skills.append({
+                    "capability": CURIOSITY_CAPABILITY,
+                    "description": "Consulta las APIs aprendidas en este chat. "
+                                   "Escoge un comando exacto si coincide con la petición.",
+                    "help": "\n".join(queries),
+                })
+        return skills
+
     async def run(self, request: AgentRequest) -> AgentResponse:
         message = request.message
         try:
@@ -75,7 +93,7 @@ class ConversationAgent:
                         "image_context": message.image_context,
                         "persona": message.channel.assistant_persona or DEFAULT_PERSONA,
                         "greeting": message.channel.assistant_greeting or "",
-                        "skills": self.catalog([
+                        "skills": await self.catalog_for(message, [
                             c for c in message.channel.allowed_capabilities
                             if c not in {"codex.assistant", "antigravity.assistant"}
                         ]),
@@ -98,7 +116,7 @@ class ConversationAgent:
                 "assistant",
                 persona=message.channel.assistant_persona or DEFAULT_PERSONA,
                 agent_name=message.channel.agent_name,
-                skills=self.catalog(message.channel.allowed_capabilities),
+                skills=await self.catalog_for(message, message.channel.allowed_capabilities),
                 greeting=message.channel.assistant_greeting or "",
                 approval_ids=[
                     str(approval.id)
@@ -181,6 +199,8 @@ class ConversationSkillWorker:
                 )
             elif not command or len(command) > 20000:
                 result = "La habilidad necesita una petición válida. Pide al usuario más detalles."
+            elif capability == CURIOSITY_CAPABILITY and not catalog_has_query(job.skills, command):
+                result = "Esa consulta no estaba disponible al recibir el mensaje."
             elif _COMMAND_CONFIRM.match(command) and not (
                 _CONFIRM.fullmatch(job.prompt.strip())
                 and any(
@@ -207,6 +227,12 @@ class ConversationSkillWorker:
                     )
                 )
                 result = response.message.content
+            if capability == CURIOSITY_CAPABILITY:
+                job.decision = {}
+                job.answer = result
+                job.status = "completed"
+                self.queue.save(job)
+                continue
             job.observations.append(
                 {"capability": capability, "command": command, "result": result[:12000]}
             )

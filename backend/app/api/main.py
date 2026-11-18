@@ -17,14 +17,17 @@ from starlette.responses import Response
 
 from app.agents.antigravity import AntigravityAgent
 from app.agents.codex import CodexAgent
+from app.agents.curiosity import CuriosityAgent
 from app.agents.github import GitHubAgent
 from app.agents.karakeep import KarakeepAgent
 from app.agents.seerr import SeerrAgent
 from app.agents.status import StatusAgent
+from app.agents.terraquake import TerraQuakeAgent
 from app.agents.usenet import UsenetAgent
 from app.api.antigravity import install_antigravity_routes
 from app.api.codex import install_codex_routes
 from app.api.conversation_bridge import router as conversation_bridge_router
+from app.api.curiosity import router as curiosity_router
 from app.api.memory import install_memory_routes
 from app.api.minions import install_minion_routes
 from app.api.notifications import install_notification_routes
@@ -61,6 +64,7 @@ from app.domain.channels import (
     ChannelConnection,
     Provider,
 )
+from app.domain.curiosity import CAPABILITY as CURIOSITY_CAPABILITY
 from app.domain.karakeep import (
     KarakeepClient,
     KarakeepClientError,
@@ -85,6 +89,7 @@ from app.domain.seerr import (
     SeerrConfigurationStatus,
     SeerrSettings,
 )
+from app.domain.skills import TERRAQUAKE_CAPABILITY
 from app.domain.usenet import UsenetClient, UsenetClientError
 from app.domain.whatsapp import (
     WhatsAppAgentProfile,
@@ -96,8 +101,9 @@ from app.domain.whatsapp import (
 )
 from app.infrastructure.approval_state import PostgresApprovalStore
 from app.infrastructure.channel_config import PostgresChannelConfigurationStore
-from app.infrastructure.conversation_bridge import BridgeStore
 from app.infrastructure.config_cipher import ConfigurationEncryptionError, configured_cipher
+from app.infrastructure.conversation_bridge import BridgeStore
+from app.infrastructure.curiosity import PostgresExplorationStore
 from app.infrastructure.karakeep_config import PostgresKarakeepConfigurationStore
 from app.infrastructure.karakeep_http import HttpKarakeepClient
 from app.infrastructure.karakeep_unconfigured import UnconfiguredKarakeepClient
@@ -116,6 +122,7 @@ from app.infrastructure.whatsapp_http import HttpWhatsAppClient
 from app.infrastructure.whatsapp_state import PostgresWhatsAppStateStore
 from app.tools.antigravity import AntigravityTool
 from app.tools.codex import CodexTool
+from app.tools.curiosity import CuriosityTool
 from app.tools.github import GitHubTool
 from app.tools.karakeep import KarakeepBookmarkTool
 from app.tools.memory_contracts import register_memory_contracts
@@ -123,6 +130,8 @@ from app.tools.notifications import SendNotificationTool
 from app.tools.registry import ToolRegistry
 from app.tools.reminders import CreateReminderTool
 from app.tools.seerr import SeerrRequestTool
+from app.tools.terraquake import Query as TerraQuakeQuery
+from app.tools.terraquake import TerraQuakeTool
 from app.tools.tools_memory import MemoryTool
 
 REQUESTS = Counter("artemis_requests_total", "Artemis requests", ["path", "status"])
@@ -157,6 +166,13 @@ def build_orchestrator(
     tools.register(GitHubTool(), authorized_agents={"github", "control-plane"})
     github_agent = GitHubAgent(tools)
     agents.register(github_agent)
+    tools.register(TerraQuakeTool(), authorized_agents={"terraquake", "control-plane"})
+    terraquake_agent = TerraQuakeAgent(tools)
+    agents.register(terraquake_agent)
+    curiosity_tool = CuriosityTool()
+    tools.register(curiosity_tool, authorized_agents={"curiosity"})
+    curiosity_agent = CuriosityAgent(tools, curiosity_tool)
+    agents.register(curiosity_agent)
     skill_agents = (
         github_agent, seerr_agent, karakeep_agent, usenet_agent, codex_agent, antigravity_agent,
     )
@@ -171,12 +187,14 @@ def build_orchestrator(
     status_agent = StatusAgent(
         {
             capability.name: capability.help_text or capability.description
-            for agent in skill_agents
+            for agent in (*skill_agents, curiosity_agent, terraquake_agent)
             for capability in agent.definition.capabilities
         }
     )
     agents.register(status_agent)
-    agents.register(ConversationAgent(antigravity_queue, agents, approvals))
+    conversation_agent = ConversationAgent(antigravity_queue, agents, approvals)
+    conversation_agent.learned_queries = curiosity_tool.learned_queries
+    agents.register(conversation_agent)
 
     def reset_conversation(conversation_id: UUID) -> None:
         seerr_agent.reset_conversation(conversation_id)
@@ -201,11 +219,14 @@ def build_orchestrator(
             "control-plane",
         },
     )
-    selectors = CompositeCapabilitySelector(karakeep_agent, usenet_agent, seerr_agent)
+    selectors = CompositeCapabilitySelector(
+        terraquake_agent, karakeep_agent, usenet_agent, seerr_agent,
+    )
     orchestrator = Orchestrator(
         CapabilityPlanner(agents, selectors), DAGExecutor(agents), sessions,
         interaction_memory=InteractionMemory(memory, (codex_queue, antigravity_queue)),
     )
+    orchestrator.curiosity_tool = curiosity_tool  # type: ignore[attr-defined]
     orchestrator.reminders = reminders  # type: ignore[attr-defined]
     orchestrator.notifications = notifications  # type: ignore[attr-defined]
     orchestrator.approvals = approvals  # type: ignore[attr-defined]
@@ -304,6 +325,11 @@ def create_app() -> FastAPI:
                 await presentation_store.load()
             )
         app.state.skill_presentations = presentation_store
+        curiosity_store = PostgresExplorationStore(database_url) if database_url else None
+        if curiosity_store:
+            await curiosity_store.start()
+        orchestrator.curiosity_tool.store = curiosity_store  # type: ignore[attr-defined]
+        app.state.curiosity = curiosity_store
         if database_url:
             approval_store = PostgresApprovalStore(database_url)
             await approval_store.start()
@@ -514,6 +540,8 @@ def create_app() -> FastAPI:
                 await app.state.usenet_client.aclose()
             if usenet_store:
                 await usenet_store.aclose()
+            if curiosity_store:
+                await curiosity_store.aclose()
             if approval_store:
                 await approval_store.aclose()
             if presentation_store:
@@ -526,6 +554,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Artemis API", version="0.1.0", openapi_url="/api/v1/openapi.json", lifespan=lifespan
     )
+    app.include_router(curiosity_router)
     app.include_router(conversation_bridge_router)
     app.state.orchestrator = orchestrator
     native = NativeTools(
@@ -533,6 +562,7 @@ def create_app() -> FastAPI:
         lambda capability, context: capability in context.capabilities,
     )
     register_memory_contracts(native)
+    native.register("terraquake.query", TERRAQUAKE_CAPABILITY, TerraQuakeQuery)
     app.state.native_tools = native
     app.state.minions = MinionDispatcher({"local": LocalExecutor(native)})
     install_minion_routes(app, app.state.minions, native)
@@ -583,6 +613,10 @@ def create_app() -> FastAPI:
         if request.url.path.startswith("/api/v1/channels/"):
             return JSONResponse(
                 status_code=422, content={"detail": "Configuración del canal inválida."},
+            )
+        if request.url.path.startswith("/api/v1/curiosity/"):
+            return JSONResponse(
+                status_code=422, content={"detail": "Solicitud de exploración inválida."},
             )
         return await request_validation_exception_handler(request, exc)
 
@@ -682,6 +716,8 @@ def create_app() -> FastAPI:
 
     def whatsapp_assignable_capabilities() -> list[str]:
         configured_capabilities = {
+            CURIOSITY_CAPABILITY: getattr(app.state, "curiosity", None) is not None,
+            TERRAQUAKE_CAPABILITY: True,
             "github.repositories": bool(os.getenv("GITHUB_TOKEN")),
             "seerr.media": app.state.seerr_configured,
             "karakeep.bookmarks": app.state.karakeep_configured,

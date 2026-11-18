@@ -16,6 +16,8 @@ from app.application.channels import ChannelController
 from app.application.conversation import _COMMAND_CONFIRM, _CONFIRM
 from app.application.whatsapp import WhatsAppAgentRuntime
 from app.application.whatsapp_formatting import whatsapp_chunks
+from app.domain.curiosity import CAPABILITY as CURIOSITY_CAPABILITY
+from app.domain.curiosity import catalog_has_query
 from app.domain.models import Channel, ChatResponse, IncomingMessage
 from app.infrastructure.conversation_bridge import BridgeSettings, BridgeStore, TurnPayload
 
@@ -194,6 +196,10 @@ class RustBridge:
             skill["capability"] for skill in payload["skills"]
         } or len(observations) >= 4:
             result = "La habilidad solicitada no está disponible para este turno."
+        elif capability == CURIOSITY_CAPABILITY and not catalog_has_query(
+            payload["skills"], command
+        ):
+            result = "Esa consulta no estaba disponible al recibir el mensaje."
         elif _COMMAND_CONFIRM.match(command) and not self._confirmed(row, payload, capability):
             result = "La operación requiere una confirmación explícita del usuario."
         else:
@@ -214,6 +220,9 @@ class RustBridge:
                 await self.store.finish(row, UNCERTAIN, row["provider"])
                 return
             result = response.message.content
+        if capability == CURIOSITY_CAPABILITY:
+            await self.store.finish(row, result, row["provider"])
+            return
         observations.append({"capability": capability, "result": result[:12000]})
         await self.store.checkpoint(row, "model", observations=observations)
 

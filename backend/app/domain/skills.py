@@ -15,7 +15,15 @@ class SkillPresentation(BaseModel):
         return " ".join(value.split()) if isinstance(value, str) else value
 
 
+TERRAQUAKE_CAPABILITY = "terraquake.earthquakes"
+
 DEFAULT_PRESENTATIONS = {
+    "terraquake": SkillPresentation(
+        name="TerraQuake", description="Consulta sismos y sus datos desde el chat."
+    ),
+    "curiosity": SkillPresentation(
+        name="Curiosidad", description="Integra y consulta APIs de lectura desde el chat."
+    ),
     "github": SkillPresentation(
         name="GitHub", description="Consulta repositorios, commits, ramas, issues y pull requests."
     ),

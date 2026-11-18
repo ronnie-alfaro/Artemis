@@ -86,6 +86,10 @@ Existe una base de function calling con contratos Pydantic/JSON Schema para `mem
 
 Los minions ejecutan trabajos acotados con concurrencia limitada, timeout y estados consultables desde Cerebro. El destino local está compuesto en la aplicación; existen adaptadores HTTP/SSH, pero requieren workers y configuración confiable adicionales. Su cola e historial son locales al proceso y se pierden al reiniciar. No son agentes autónomos con autoridad adicional. Véase [contratos, ejecución y límites](docs/native-tools-minions.md).
 
+### Curiosidad
+
+Desde WhatsApp o Telegram, di «Aprende esta API» y envía su OpenAPI. Curiosidad guarda las operaciones de lectura compatibles y el asistente puede seleccionarlas en futuras peticiones de ese chat. [Consulta los comandos, permisos y formatos admitidos.](docs/curiosity.md)
+
 ## Persistencia y límites operativos
 
 - **PostgreSQL:** configuración, identidades y estado persistente de canales y servicios. Los secretos de configuración pueden protegerse con cifrado local o AWS KMS; consulta [KMS y recarga de canales](docs/aws-kms.md).

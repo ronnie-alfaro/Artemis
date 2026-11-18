@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from app.application.interaction_memory import InteractionMemory
 from app.application.registry import AgentRegistry
 from app.application.skill_sessions import SkillSessionRouter
+from app.domain.curiosity import chat_command
 from app.domain.models import (
     AgentExecution,
     AgentRequest,
@@ -161,7 +162,7 @@ class Orchestrator:
     async def handle(self, message: IncomingMessage) -> ChatResponse:
         async with self._conversation_locks[(message.channel.name, message.conversation_id)]:
             response = await self._handle(message)
-            if self.interaction_memory:
+            if self.interaction_memory and chat_command(message.content) is None:
                 try:
                     await asyncio.to_thread(self.interaction_memory.enqueue, message, response)
                 except Exception:

@@ -10,11 +10,15 @@ from uuid import UUID
 from app.application.approvals import ApprovalStore
 from app.application.github_sync import is_sync_command
 from app.application.iteration import is_iteration_command
+from app.domain.curiosity import CAPABILITY as CURIOSITY_CAPABILITY
+from app.domain.curiosity import CHAT_CONTEXT_KEY, chat_command
 from app.domain.models import IncomingMessage, ReactionOption
-from app.domain.skills import SkillPresentation, help_target
+from app.domain.skills import TERRAQUAKE_CAPABILITY, SkillPresentation, help_target
 
 SKILL_CAPABILITIES = {
+    "curiosity": CURIOSITY_CAPABILITY,
     "github": "github.repositories",
+    "terraquake": TERRAQUAKE_CAPABILITY,
     "antigravity": "antigravity.assistant",
     "codex": "codex.assistant",
     "usenet": "usenet.downloads",
@@ -57,7 +61,7 @@ class SkillSessionRouter:
     def _available(self, message: IncomingMessage) -> dict[str, str]:
         allowed = message.channel.allowed_capabilities
         return {skill: capability for skill, capability in SKILL_CAPABILITIES.items()
-                if not allowed or capability in allowed}
+                if capability in allowed or (not allowed and capability != CURIOSITY_CAPABILITY)}
 
     @staticmethod
     def _status(
@@ -82,6 +86,13 @@ class SkillSessionRouter:
         # that agent, even when it starts with session words such as "utiliza".
         if message.required_capabilities:
             return message, {}
+        if chat_command(message.content) is not None:
+            if (message.channel.name not in {"whatsapp", "telegram"}
+                    or CURIOSITY_CAPABILITY not in message.channel.allowed_capabilities):
+                return self._status(message, "Curiosidad no está asignada a esta conversación.")
+            return message.model_copy(update={
+                "required_capabilities": [CURIOSITY_CAPABILITY],
+            }), {CHAT_CONTEXT_KEY: "true"}
         available = self._available(message)
         if is_iteration_command(message.content) or is_sync_command(message.content):
             if "codex" not in available:
