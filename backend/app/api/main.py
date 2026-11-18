@@ -22,6 +22,7 @@ from app.agents.github import GitHubAgent
 from app.agents.karakeep import KarakeepAgent
 from app.agents.seerr import SeerrAgent
 from app.agents.status import StatusAgent
+from app.agents.terraquake import TerraQuakeAgent
 from app.agents.usenet import UsenetAgent
 from app.api.antigravity import install_antigravity_routes
 from app.api.codex import install_codex_routes
@@ -88,6 +89,7 @@ from app.domain.seerr import (
     SeerrConfigurationStatus,
     SeerrSettings,
 )
+from app.domain.skills import TERRAQUAKE_CAPABILITY
 from app.domain.usenet import UsenetClient, UsenetClientError
 from app.domain.whatsapp import (
     WhatsAppAgentProfile,
@@ -128,6 +130,8 @@ from app.tools.notifications import SendNotificationTool
 from app.tools.registry import ToolRegistry
 from app.tools.reminders import CreateReminderTool
 from app.tools.seerr import SeerrRequestTool
+from app.tools.terraquake import Query as TerraQuakeQuery
+from app.tools.terraquake import TerraQuakeTool
 from app.tools.tools_memory import MemoryTool
 
 REQUESTS = Counter("artemis_requests_total", "Artemis requests", ["path", "status"])
@@ -162,6 +166,9 @@ def build_orchestrator(
     tools.register(GitHubTool(), authorized_agents={"github", "control-plane"})
     github_agent = GitHubAgent(tools)
     agents.register(github_agent)
+    tools.register(TerraQuakeTool(), authorized_agents={"terraquake", "control-plane"})
+    terraquake_agent = TerraQuakeAgent(tools)
+    agents.register(terraquake_agent)
     curiosity_tool = CuriosityTool()
     tools.register(curiosity_tool, authorized_agents={"curiosity"})
     curiosity_agent = CuriosityAgent(tools, curiosity_tool)
@@ -180,7 +187,7 @@ def build_orchestrator(
     status_agent = StatusAgent(
         {
             capability.name: capability.help_text or capability.description
-            for agent in (*skill_agents, curiosity_agent)
+            for agent in (*skill_agents, curiosity_agent, terraquake_agent)
             for capability in agent.definition.capabilities
         }
     )
@@ -212,7 +219,9 @@ def build_orchestrator(
             "control-plane",
         },
     )
-    selectors = CompositeCapabilitySelector(karakeep_agent, usenet_agent, seerr_agent)
+    selectors = CompositeCapabilitySelector(
+        terraquake_agent, karakeep_agent, usenet_agent, seerr_agent,
+    )
     orchestrator = Orchestrator(
         CapabilityPlanner(agents, selectors), DAGExecutor(agents), sessions,
         interaction_memory=InteractionMemory(memory, (codex_queue, antigravity_queue)),
@@ -553,6 +562,7 @@ def create_app() -> FastAPI:
         lambda capability, context: capability in context.capabilities,
     )
     register_memory_contracts(native)
+    native.register("terraquake.query", TERRAQUAKE_CAPABILITY, TerraQuakeQuery)
     app.state.native_tools = native
     app.state.minions = MinionDispatcher({"local": LocalExecutor(native)})
     install_minion_routes(app, app.state.minions, native)
@@ -707,6 +717,7 @@ def create_app() -> FastAPI:
     def whatsapp_assignable_capabilities() -> list[str]:
         configured_capabilities = {
             CURIOSITY_CAPABILITY: getattr(app.state, "curiosity", None) is not None,
+            TERRAQUAKE_CAPABILITY: True,
             "github.repositories": bool(os.getenv("GITHUB_TOKEN")),
             "seerr.media": app.state.seerr_configured,
             "karakeep.bookmarks": app.state.karakeep_configured,

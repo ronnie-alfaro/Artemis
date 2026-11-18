@@ -13,11 +13,12 @@ from app.application.iteration import is_iteration_command
 from app.domain.curiosity import CAPABILITY as CURIOSITY_CAPABILITY
 from app.domain.curiosity import CHAT_CONTEXT_KEY, chat_command
 from app.domain.models import IncomingMessage, ReactionOption
-from app.domain.skills import SkillPresentation, help_target
+from app.domain.skills import TERRAQUAKE_CAPABILITY, SkillPresentation, help_target
 
 SKILL_CAPABILITIES = {
     "curiosity": CURIOSITY_CAPABILITY,
     "github": "github.repositories",
+    "terraquake": TERRAQUAKE_CAPABILITY,
     "antigravity": "antigravity.assistant",
     "codex": "codex.assistant",
     "usenet": "usenet.downloads",
