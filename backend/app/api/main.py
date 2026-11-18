@@ -25,6 +25,7 @@ from app.agents.usenet import UsenetAgent
 from app.api.antigravity import install_antigravity_routes
 from app.api.codex import install_codex_routes
 from app.api.conversation_bridge import router as conversation_bridge_router
+from app.api.curiosity import router as curiosity_router
 from app.api.memory import install_memory_routes
 from app.api.minions import install_minion_routes
 from app.api.notifications import install_notification_routes
@@ -96,8 +97,9 @@ from app.domain.whatsapp import (
 )
 from app.infrastructure.approval_state import PostgresApprovalStore
 from app.infrastructure.channel_config import PostgresChannelConfigurationStore
-from app.infrastructure.conversation_bridge import BridgeStore
 from app.infrastructure.config_cipher import ConfigurationEncryptionError, configured_cipher
+from app.infrastructure.conversation_bridge import BridgeStore
+from app.infrastructure.curiosity import PostgresExplorationStore
 from app.infrastructure.karakeep_config import PostgresKarakeepConfigurationStore
 from app.infrastructure.karakeep_http import HttpKarakeepClient
 from app.infrastructure.karakeep_unconfigured import UnconfiguredKarakeepClient
@@ -304,6 +306,10 @@ def create_app() -> FastAPI:
                 await presentation_store.load()
             )
         app.state.skill_presentations = presentation_store
+        curiosity_store = PostgresExplorationStore(database_url) if database_url else None
+        if curiosity_store:
+            await curiosity_store.start()
+        app.state.curiosity = curiosity_store
         if database_url:
             approval_store = PostgresApprovalStore(database_url)
             await approval_store.start()
@@ -514,6 +520,8 @@ def create_app() -> FastAPI:
                 await app.state.usenet_client.aclose()
             if usenet_store:
                 await usenet_store.aclose()
+            if curiosity_store:
+                await curiosity_store.aclose()
             if approval_store:
                 await approval_store.aclose()
             if presentation_store:
@@ -526,6 +534,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Artemis API", version="0.1.0", openapi_url="/api/v1/openapi.json", lifespan=lifespan
     )
+    app.include_router(curiosity_router)
     app.include_router(conversation_bridge_router)
     app.state.orchestrator = orchestrator
     native = NativeTools(
@@ -583,6 +592,10 @@ def create_app() -> FastAPI:
         if request.url.path.startswith("/api/v1/channels/"):
             return JSONResponse(
                 status_code=422, content={"detail": "Configuración del canal inválida."},
+            )
+        if request.url.path.startswith("/api/v1/curiosity/"):
+            return JSONResponse(
+                status_code=422, content={"detail": "Solicitud de exploración inválida."},
             )
         return await request_validation_exception_handler(request, exc)
 
