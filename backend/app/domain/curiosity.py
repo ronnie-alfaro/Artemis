@@ -71,4 +71,16 @@ COMMAND_NAME = r"[A-Za-z0-9_-]{1,64}"
 def chat_command(content: str) -> str | None:
     text = content.strip()
     prefix = re.match(r"^/?curiosidad\s+", text, re.I)
-    return text[prefix.end() :] if prefix else None
+    if prefix:
+        return text[prefix.end() :]
+    learning = re.fullmatch(
+        r"(?:artemis[, ]+)?aprende (?:esta|la) api(?:[\s:]+(.*))?", text, re.I | re.S
+    )
+    return f"aprender {learning[1] or ''}".strip() if learning else None
+
+
+def catalog_has_query(skills: list[dict[str, str]], command: str) -> bool:
+    return any(
+        skill["capability"] == CAPABILITY and command in skill.get("help", "").splitlines()
+        for skill in skills
+    )

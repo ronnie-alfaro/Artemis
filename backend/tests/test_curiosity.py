@@ -125,10 +125,13 @@ async def test_chat_mount_call_and_retire_with_postgres(monkeypatch: pytest.Monk
 
     from app.agents.curiosity import CuriosityAgent
     from app.agents.status import StatusAgent
+    from app.application.antigravity import AntigravityQueue
     from app.application.approvals import ApprovalStore
+    from app.application.conversation import ConversationAgent
     from app.application.orchestrator import CapabilityPlanner, DAGExecutor, Orchestrator
     from app.application.registry import AgentRegistry
     from app.application.skill_sessions import SkillSessionRouter
+    from app.domain.curiosity import catalog_has_query
     from app.domain.models import Channel, IncomingMessage
     from app.domain.skills import DEFAULT_PRESENTATIONS
     from app.tools.curiosity import CuriosityTool
@@ -225,31 +228,48 @@ async def test_chat_mount_call_and_retire_with_postgres(monkeypatch: pytest.Monk
         )
         return response.message.content
 
+    name = None
     try:
-        command = f"Curiosidad integrar sistema {spec_url}"
+        command = f"Artemis, aprende esta API {spec_url}"
         assert "no está asignada" in await chat(command, allowed=False)
         await chat(command, synthetic=True)
         assert not calls
         mounted = await chat(command)
-        assert "Curiosidad consultar sistema readStatus" in mounted
+        query = next(
+            line.removeprefix("• ") for line in mounted.splitlines() if "consultar" in line
+        )
+        name = query.split()[2]
+        assert query.endswith(" readStatus")
         assert calls == [spec_url]
         await store.aclose()
         store = PostgresExplorationStore(database_url)
         await store.start()
         adapter.store = store
-        assert "true" in await chat("Curiosidad consultar sistema readStatus")
-        assert "en esta conversación" in await chat(
-            "Curiosidad consultar sistema readStatus", uuid4()
+
+        natural = ConversationAgent(AntigravityQueue(), agents, approvals)
+        natural.learned_queries = adapter.learned_queries
+        catalog = await natural.catalog_for(
+            IncomingMessage(
+                channel=Channel(name="telegram"),
+                conversation_id=conversation,
+                content="Muéstrame el estado del servicio",
+            ),
+            ["curiosity.api"],
         )
+        assert catalog_has_query(catalog, query)
+        assert not catalog_has_query(catalog, command)
+        assert "true" in await chat(query, synthetic=True)
+        assert "en esta conversación" in await chat(query, uuid4())
         output.clear()
-        assert "contrato JSON" in await chat("Curiosidad consultar sistema readStatus")
+        assert "contrato JSON" in await chat(query)
         mock_status = 401
-        assert "HTTP 401" in await chat("Curiosidad consultar sistema readStatus")
+        assert "HTTP 401" in await chat(query)
         monkeypatch.setenv("ARTEMIS_CURIOSITY_ALLOWED_URLS", spec_url)
-        assert "no está autorizado" in await chat("Curiosidad consultar sistema readStatus")
+        assert "no está autorizado" in await chat(query)
         assert calls == [spec_url, read_url, read_url, read_url]
-        assert "retirada" in await chat("Curiosidad retirar sistema")
-        assert await store.mounted("telegram", conversation, "sistema") is None
+        assert "retirada" in await chat(f"Curiosidad retirar {name}")
+        assert await store.mounted("telegram", conversation, name) is None
     finally:
-        await store.unmount("telegram", conversation, "sistema")
+        if name:
+            await store.unmount("telegram", conversation, name)
         await store.aclose()

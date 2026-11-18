@@ -116,6 +116,18 @@ class PostgresExplorationStore:
         )
         return MountedAPI.model_validate_json(value) if value is not None else None
 
+    async def mounted_apis(self, channel: str, conversation: UUID) -> list[MountedAPI]:
+        rows = await self.pool.fetch(
+            """
+            SELECT adapter FROM curiosity_mounts
+            WHERE channel=$1 AND conversation=$2
+            ORDER BY name LIMIT 20
+            """,
+            channel,
+            conversation,
+        )
+        return [MountedAPI.model_validate_json(row["adapter"]) for row in rows]
+
     async def unmount(self, channel: str, conversation: UUID, name: str) -> bool:
         result = await self.pool.execute(
             """

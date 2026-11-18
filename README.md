@@ -88,7 +88,7 @@ Los minions ejecutan trabajos acotados con concurrencia limitada, timeout y esta
 
 ### Curiosidad
 
-Desde WhatsApp o Telegram, Curiosidad monta operaciones de lectura de un documento OpenAPI y las conserva para volver a consultarlas en ese chat. [Consulta los comandos, permisos y formatos admitidos.](docs/curiosity.md)
+Desde WhatsApp o Telegram, di «Aprende esta API» y envía su OpenAPI. Curiosidad guarda las operaciones de lectura compatibles y el asistente puede seleccionarlas en futuras peticiones de ese chat. [Consulta los comandos, permisos y formatos admitidos.](docs/curiosity.md)
 
 ## Persistencia y límites operativos
 

@@ -4,13 +4,13 @@
 
 1. Añade a `ARTEMIS_CURIOSITY_ALLOWED_URLS` las URL HTTPS exactas del documento OpenAPI JSON y de las operaciones de lectura autorizadas, separadas por comas. La API carga esta configuración al desplegar.
 2. Asigna **Integrar APIs · Curiosidad** al bot en **Agentes**. El montaje y las consultas se hacen en el chat.
-3. Envía `Curiosidad integrar inventario https://docs.example.com/openapi.json`. Si el documento está en el propio mensaje, indica el origen de la API en lugar de la URL del documento y pega el JSON en la línea siguiente.
-4. Artemis responde con los comandos de consulta generados. Por ejemplo, `Curiosidad consultar inventario obtenerInventario`. El primer uso verifica la respuesta del servicio contra el contrato guardado.
-5. `Curiosidad retirar inventario` elimina la integración de ese chat. Volver a integrar con el mismo nombre reemplaza el adaptador si el nuevo documento tiene operaciones válidas.
+3. Envía `Aprende esta API https://docs.example.com/openapi.json`. Para pegar el JSON, escribe el origen de la API después de «Aprende esta API» y el documento en la línea siguiente. Para elegir un nombre fijo usa `Curiosidad integrar NOMBRE URL`.
+4. Artemis guarda las consultas y las incluye en el catálogo del asistente de ese chat. Pídele una operación en lenguaje natural, por ejemplo «Muéstrame el inventario». El asistente selecciona entre las operaciones publicadas si el identificador de operación ofrece contexto suficiente. También puedes usar los comandos que Artemis muestra al aprender el documento. Cada uso verifica la respuesta del servicio contra el contrato guardado.
+5. `Curiosidad retirar NOMBRE` elimina la integración de ese chat. Volver a integrar con el mismo nombre reemplaza el adaptador si el nuevo documento tiene operaciones válidas.
 
 El adaptador es declarativo, se guarda en PostgreSQL y solo está disponible en su conversación y canal. Admite OpenAPI 3.0/3.1 en JSON con un servidor fijo y hasta 16 operaciones GET con `operationId`, sin autenticación ni parámetros. La respuesta HTTP 200 debe declarar `application/json` con un esquema de objeto o arreglo. Se admiten propiedades, campos requeridos, elementos de arreglos, restricciones simples y referencias locales acotadas a `components/schemas`. Las referencias externas y circulares quedan fuera del montaje.
 
-Las solicitudes tienen un plazo de ocho segundos, limitan el cuerpo a 128 KiB y validan la URL exacta antes de cada llamada. El ejecutor no sigue redirecciones ni incorpora credenciales del entorno. Esta versión usa comandos explícitos y deja pendientes la selección conversacional libre, el montaje de APIs autenticadas, las operaciones de escritura y la generación de código.
+Las solicitudes tienen un plazo de ocho segundos, limitan el cuerpo a 128 KiB y validan la URL exacta antes de cada llamada. El ejecutor no sigue redirecciones ni incorpora credenciales del entorno. La selección en lenguaje natural requiere el asistente conversacional habilitado. El catálogo solo incluye consultas autorizadas de la conversación actual, y el servidor verifica la selección antes de llamar a la API externa. El montaje de APIs autenticadas, las operaciones de escritura y la generación de código quedan pendientes.
 
 ## Inventario administrativo
 

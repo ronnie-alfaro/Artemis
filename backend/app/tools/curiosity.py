@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -157,10 +158,14 @@ class CuriosityTool:
             raise CuriosityError("No pude leer una respuesta JSON UTF-8 del servicio.") from None
 
     async def mount(
-        self, channel: str, conversation: UUID, name: str, source: str, inline: str | None
+        self, channel: str, conversation: UUID, name: str | None, source: str, inline: str | None
     ) -> MountedAPI:
         store = self._store()
         source_url = _url(source)
+        if name is None:
+            origin = re.sub(r"[^a-z0-9]+", "-", source_url.host.lower()).strip("-")[:40]
+            digest = hashlib.sha256(str(source_url).encode()).hexdigest()[:12]
+            name = f"{origin}-{digest}"
         specification = inline if inline is not None else await self._get(source_url)
         report = await asyncio.to_thread(
             analyze_specification, ExplorationInput(objective=name, specification=specification)
@@ -244,6 +249,16 @@ class CuriosityTool:
         api = MountedAPI(name=name, operations=list(operations.values()))
         await store.mount(channel, conversation, api)
         return api
+
+    async def learned_queries(self, channel: str, conversation: UUID) -> list[str]:
+        if self.store is None:
+            return []
+        return [
+            f"Curiosidad consultar {api.name} {read.operation}"
+            for api in await self.store.mounted_apis(channel, conversation)
+            for read in api.operations
+            if self.allowed(_url(read.url))
+        ][:50]
 
     def _store(self) -> PostgresExplorationStore:
         if self.store is None:

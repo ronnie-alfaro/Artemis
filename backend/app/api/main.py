@@ -185,7 +185,9 @@ def build_orchestrator(
         }
     )
     agents.register(status_agent)
-    agents.register(ConversationAgent(antigravity_queue, agents, approvals))
+    conversation_agent = ConversationAgent(antigravity_queue, agents, approvals)
+    conversation_agent.learned_queries = curiosity_tool.learned_queries
+    agents.register(conversation_agent)
 
     def reset_conversation(conversation_id: UUID) -> None:
         seerr_agent.reset_conversation(conversation_id)
