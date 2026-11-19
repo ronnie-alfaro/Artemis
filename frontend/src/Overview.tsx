@@ -1,21 +1,19 @@
 import { useEffect, useState } from "react";
 import { apiFetch, dateTime } from "./api";
-import { Icon, StatusTag } from "./ui";
+import { Icon } from "./ui";
 import "./overview.css";
 
 type Navigate = (view: "Overview" | "Agents" | "Skills" | "Tools" | "Channels" | "Settings", tool?: "notifications" | "webhooks" | "reminders") => void;
 type Event = { id: string; title: string; message: string; source: string; whatsapp_status: string; received_at: string };
 type Reminder = { id: string; message: string; status: string; next_check_at: string | null };
-type Service = { configured: boolean; connected?: boolean };
 type Job = { id: string; status: string; created_at: number; prompt?: string };
 type MemoryNote = { id: string; text: string; metadata: { created_at: number | string; kind?: string } };
 type Activity = { id: string; title: string; source: string; status: string; label: string; at: number };
-type Snapshot = { activity: Activity[] | null; events: Event[] | null; reminders: Reminder[] | null; services: Record<string, Service | null>; refreshed: Date | null };
-const initial: Snapshot = { activity: null, events: null, reminders: null, services: { seerr: null, karakeep: null, usenet: null, codex: null, antigravity: null }, refreshed: null };
+type Snapshot = { activity: Activity[] | null; events: Event[] | null; reminders: Reminder[] | null; services: Record<string, boolean | null> };
+const initial: Snapshot = { activity: null, events: null, reminders: null, services: { seerr: null, karakeep: null, usenet: null, codex: null, antigravity: null } };
 const eventLabels: Record<string, string> = { sent: "Enviado", pending: "En cola", sending: "Enviando", retry: "Reintentando", not_requested: "Registrado" };
 const origins: Record<string, string> = { reminders: "Recordatorios", manual: "Envío directo", seerr: "Seerr" };
-const serviceNames = { seerr: "Seerr", karakeep: "Karakeep", usenet: "Usenet", codex: "Codex", antigravity: "Antigravity" };
-const services = Object.keys(serviceNames) as (keyof typeof serviceNames)[];
+const services = ["seerr", "karakeep", "usenet", "codex", "antigravity"];
 const workers = ["Codex", "Antigravity"];
 const memoryLabels: Record<string, string> = { learning: "Aprendizaje", feedback: "Reconocimiento", requested: "Recuerdo solicitado" };
 
@@ -56,17 +54,8 @@ function recentActivity(events: Event[] | null, memories: MemoryNote[] | null, j
     .sort((a, b) => b.at - a.at);
 }
 
-function serviceStatus(service: Service | null, checking: boolean): { tone: "good" | "warn" | "neutral"; label: string } {
-  if (!service) return { tone: "neutral", label: checking ? "Consultando…" : "Sin verificar" };
-  if (typeof service.connected === "boolean") {
-    return service.connected ? { tone: "good", label: "Conectado" } : { tone: "warn", label: "Sin conexión" };
-  }
-  return service.configured ? { tone: "good", label: "Configurado" } : { tone: "neutral", label: "Sin configurar" };
-}
-
-export function Overview({ navigate, health }: { navigate: Navigate; health: "online" | "offline" | "checking" }) {
+export function Overview({ navigate }: { navigate: Navigate }) {
   const [snapshot, setSnapshot] = useState<Snapshot>(initial);
-  const [refresh, setRefresh] = useState(0);
   const [refreshing, setRefreshing] = useState(true);
   useEffect(() => {
     let active = true;
@@ -84,16 +73,15 @@ export function Overview({ navigate, health }: { navigate: Navigate; health: "on
         events: data[0],
         reminders: data[1],
         activity: recentActivity(data[0], data[2], data.slice(3, 3 + workers.length)),
-        services: Object.fromEntries(services.map((id, index) => [id, data[3 + workers.length + index]])),
-        refreshed: new Date(),
+        services: Object.fromEntries(services.map((id, index) => [id, data[3 + workers.length + index]?.configured ?? null])),
       });
       setRefreshing(false);
     };
     void load();
     const timer = window.setInterval(() => { void load(); }, 30000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [refresh]);
-  const configured = Object.values(snapshot.services).filter(value => value?.configured).length;
+  }, []);
+  const configured = Object.values(snapshot.services).filter(value => value === true).length;
   const serviceCount = Object.keys(snapshot.services).length;
   const verified = Object.values(snapshot.services).filter(value => value !== null).length;
   const activeReminders = snapshot.reminders?.filter(item => item.status === "active") ?? [];
@@ -105,36 +93,10 @@ export function Overview({ navigate, health }: { navigate: Navigate; health: "on
     { icon: "bell" as const, label: "Avisos pendientes", value: pending === undefined ? "—" : String(pending), note: "En las últimas 50 notificaciones", view: "Tools" as const, tool: "notifications" as const, tone: "amber" },
   ];
   return <div className="overview">
-    <section className="panel operations-panel" aria-labelledby="operations-title">
-      <div className="operations-main">
-        <h1 id="operations-title">Consola de administración</h1>
-        <div className="operations-refresh">
-          <button className="subtle-button" disabled={refreshing} onClick={() => setRefresh(value => value + 1)}>
-            <Icon name="bolt" size={16}/>{refreshing ? "Sincronizando…" : "Sincronizar"}
-          </button>
-          {snapshot.refreshed && <time dateTime={snapshot.refreshed.toISOString()}>
-            Actualizado a las {snapshot.refreshed.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
-          </time>}
-        </div>
-      </div>
-      <div className="operations-components">
-        <div className="operations-component-heading">
-          <h2>Estado de componentes</h2>
-          <button className="text-button" onClick={() => navigate("Skills")}>
-            Ver habilidades<Icon name="arrow" size={15}/>
-          </button>
-        </div>
-        <ul>
-          <li><span>API de Artemis</span><StatusTag tone={health === "online" ? "good" : health === "offline" ? "warn" : "neutral"}>
-            {health === "online" ? "En línea" : health === "offline" ? "Sin respuesta" : "Consultando…"}
-          </StatusTag></li>
-          {services.map(id => {
-            const status = serviceStatus(snapshot.services[id], refreshing && snapshot.refreshed === null);
-            return <li key={id}><span>{serviceNames[id]}</span><StatusTag tone={status.tone}>{status.label}</StatusTag></li>;
-          })}
-        </ul>
-      </div>
-    </section>
+    <header className="panel console-heading" aria-labelledby="console-title">
+      <img src="/images/arty_final.png" alt="Artemis" width={64} height={64}/>
+      <h1 id="console-title">Consola de administración</h1>
+    </header>
     <section className="metric-grid" aria-label="Resumen del sistema">{metrics.map(metric => <button key={metric.label} className={`metric-card ${metric.tone}`} onClick={() => navigate(metric.view, metric.tool)}><div className="metric-top"><span className="metric-icon"><Icon name={metric.icon}/></span><Icon name="arrow" size={16}/></div><strong>{metric.value}</strong><span className="metric-label">{metric.label}</span><small>{metric.note}</small></button>)}</section>
     <div className="dashboard-columns">
       <section className="panel activity-panel"><div className="section-heading"><div><p className="eyebrow">LO QUE ESTÁ PASANDO</p><h3>Actividad de Artemis</h3></div><button className="text-button" onClick={() => navigate("Tools", "notifications")}>Ver avisos<Icon name="arrow" size={15}/></button></div>

@@ -147,7 +147,7 @@ export function App() {
   if (authRequired && !authenticated) return <SignIn onAuthenticated={() => setAuthenticated(true)}/>;
   const selected = navigation.find(item => item.id === route.view)!;
   const pages: Record<View, ReactNode> = {
-    Overview: <Overview navigate={navigate} health={health}/>, Agents: <Agents apiFetch={apiFetch} channel={route.channel ?? "whatsapp"} onChannelChange={channel => navigate("Agents", channel)}/>, Skills: <Skills apiFetch={apiFetch}/>,
+    Overview: <Overview navigate={navigate}/>, Agents: <Agents apiFetch={apiFetch} channel={route.channel ?? "whatsapp"} onChannelChange={channel => navigate("Agents", channel)}/>, Skills: <Skills apiFetch={apiFetch}/>,
     Tools: <Tools apiFetch={apiFetch} activeTool={route.tool ?? "notifications"} onSelectTool={tool => navigate("Tools", tool)}/>,
     Brain: <Brain/>,
     ContextBuilder: <ContextBuilder/>,
