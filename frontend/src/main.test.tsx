@@ -46,6 +46,16 @@ describe("Artemis en español", () => {
     expect(await screen.findByText("WhatsApp en marcha")).toBeDefined();
   });
 
+  it("keeps the gods in Inicio and the deer beside the footer mascot", async () => {
+    const { container } = render(<App/>);
+    await screen.findByText("WhatsApp en marcha");
+    const figures = container.querySelectorAll(".pixel-scene .scene-figure");
+    expect([...figures].map(figure => figure.classList[1])).toEqual([
+      "scene-figure--athena", "scene-figure--apollo", "scene-figure--zeus",
+    ]);
+    expect(container.querySelectorAll(".artemis-mascot canvas")).toHaveLength(2);
+  });
+
   it("places WhatsApp Curiosidad under Meta Habilidades", async () => {
     window.location.hash = "#/curiosidad";
     render(<App/>);

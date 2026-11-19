@@ -5,11 +5,15 @@ import { CELL } from "./sprites";
 export function ArtemisMascot({ reduced }: { reduced: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const deer = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    if (host.current && canvas.current) return mountArtemis(canvas.current, host.current, reduced);
+    if (host.current && canvas.current && deer.current) {
+      return mountArtemis(canvas.current, deer.current, host.current, reduced);
+    }
   }, [reduced]);
 
   return <div className="artemis-mascot" ref={host} aria-hidden="true">
+    <canvas ref={deer} width={CELL} height={CELL}/>
     <canvas ref={canvas} width={CELL} height={CELL}/>
   </div>;
 }

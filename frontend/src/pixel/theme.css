@@ -119,11 +119,12 @@
   height: var(--figure-size);
   margin-left: calc(var(--figure-size) / -2);
   overflow: hidden;
-  animation: scene-chase 7.5s linear infinite;
+  animation: scene-stroll 3.6s linear infinite;
 }
 
-.scene-figure--artemis { --lead: 0px; left: 28%; }
-.scene-figure--deer { --lead: clamp(32px, 5vw, 54px); left: 51%; }
+.scene-figure--athena { left: 17%; }
+.scene-figure--apollo { left: 50%; animation-delay: -1.3s; }
+.scene-figure--zeus { left: 83%; animation-delay: -2.6s; }
 
 .scene-figure canvas {
   left: 0;
@@ -132,18 +133,17 @@
   animation: scene-stride .56s steps(4) infinite;
 }
 
-@keyframes scene-chase {
-  from { left: calc(-2 * var(--figure-size) + var(--lead)); }
-  to { left: calc(100% + var(--figure-size) + var(--lead)); }
+@keyframes scene-stroll {
+  0% { transform: translateX(-8px); }
+  49.99% { transform: translateX(8px); }
+  50% { transform: translateX(8px) scaleX(-1); }
+  100% { transform: translateX(-8px) scaleX(-1); }
 }
 
 @keyframes scene-stride {
   from { transform: translateX(-12.5%); }
   to { transform: translateX(-62.5%); }
 }
-
-[data-motion="reduced"] .scene-figure,
-[data-motion="reduced"] .scene-figure canvas { animation: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .scene-figure, .scene-figure canvas { animation: none; }
@@ -162,7 +162,8 @@
   position: fixed;
   z-index: 12;
   inset: auto 8px env(safe-area-inset-bottom, 0px);
-  height: 1px;
+  height: 105px;
+  overflow: hidden;
   pointer-events: none;
 }
 
