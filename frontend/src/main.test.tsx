@@ -43,17 +43,18 @@ describe("Artemis en español", () => {
     expect(within(nav).getAllByRole("button").map(item => item.getAttribute("aria-label"))).toEqual(["Inicio", "Agentes", "Habilidades", "Herramientas", "Cerebro", "Context Builder", "Canales", "Ajustes"]);
     expect(screen.queryByText("Runs")).toBeNull(); expect(screen.queryByText("Approvals")).toBeNull();
     expect(screen.queryByRole("button", { name: "Webhooks" })).toBeNull();
-    expect(await screen.findByText("WhatsApp en marcha")).toBeDefined();
+    expect(await screen.findByText("En marcha")).toBeDefined();
   });
 
-  it("keeps the gods in Inicio and the deer beside the footer mascot", async () => {
+  it("shows channel status and opens notifications from the operations panel", async () => {
     const { container } = render(<App/>);
-    await screen.findByText("WhatsApp en marcha");
-    const figures = container.querySelectorAll(".pixel-scene .scene-figure");
-    expect([...figures].map(figure => figure.classList[1])).toEqual([
-      "scene-figure--athena", "scene-figure--apollo", "scene-figure--zeus",
-    ]);
+    const panel = await screen.findByRole("region", { name: "Centro de operaciones" });
+    const channels = within(panel).getAllByRole("listitem");
+    expect(await within(channels[0]).findByText("En marcha")).toBeDefined();
+    expect(within(channels[1]).getByText("Sin configurar")).toBeDefined();
     expect(container.querySelectorAll(".artemis-mascot canvas")).toHaveLength(2);
+    fireEvent.click(within(panel).getByRole("button", { name: "Consultar avisos" }));
+    expect(await screen.findByRole("heading", { name: "Notificaciones" })).toBeDefined();
   });
 
   it("places WhatsApp Curiosidad under Meta Habilidades", async () => {

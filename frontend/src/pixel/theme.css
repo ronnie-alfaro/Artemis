@@ -93,14 +93,6 @@
   border-color: var(--line);
 }
 
-.hero-artwork {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin: 12px 0 15px;
-  border: 1px solid var(--line);
-}
-
 .pixel-scene {
   display: grid;
   place-items: center;

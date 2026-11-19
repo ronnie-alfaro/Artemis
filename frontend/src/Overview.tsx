@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch, dateTime } from "./api";
 import { Icon, StatusTag } from "./ui";
-import { PixelScene } from "./pixel/PixelScene";
+import "./overview.css";
 
 type Navigate = (view: "Overview" | "Agents" | "Skills" | "Tools" | "Channels" | "Settings", tool?: "notifications" | "webhooks" | "reminders") => void;
 type Event = { id: string; title: string; message: string; source: string; whatsapp_status: string; received_at: string };
@@ -10,8 +10,8 @@ type Channel = { configured: boolean; running: boolean; last_error: string | nul
 type Job = { id: string; status: string; created_at: number; prompt?: string };
 type MemoryNote = { id: string; text: string; metadata: { created_at: number | string; kind?: string } };
 type Activity = { id: string; title: string; source: string; status: string; label: string; at: number };
-type Snapshot = { activity: Activity[] | null; events: Event[] | null; reminders: Reminder[] | null; channel: Channel | null; services: Record<string, boolean | null>; refreshed: Date | null };
-const initial: Snapshot = { activity: null, events: null, reminders: null, channel: null, services: { seerr: null, karakeep: null, usenet: null, codex: null, antigravity: null }, refreshed: null };
+type Snapshot = { activity: Activity[] | null; events: Event[] | null; reminders: Reminder[] | null; channels: { whatsapp: Channel | null; telegram: Channel | null }; services: Record<string, boolean | null>; refreshed: Date | null };
+const initial: Snapshot = { activity: null, events: null, reminders: null, channels: { whatsapp: null, telegram: null }, services: { seerr: null, karakeep: null, usenet: null, codex: null, antigravity: null }, refreshed: null };
 const eventLabels: Record<string, string> = { sent: "Enviado", pending: "En cola", sending: "Enviando", retry: "Reintentando", not_requested: "Registrado" };
 const origins: Record<string, string> = { reminders: "Recordatorios", manual: "Envío directo", seerr: "Seerr" };
 const services = ["seerr", "karakeep", "usenet", "codex", "antigravity"];
@@ -55,9 +55,14 @@ function recentActivity(events: Event[] | null, memories: MemoryNote[] | null, j
     .sort((a, b) => b.at - a.at);
 }
 
-export function Overview({ navigate, light }: {
-  navigate: Navigate; light: boolean;
-}) {
+function channelStatus(channel: Channel | null, checking: boolean): { tone: "good" | "warn" | "neutral"; label: string } {
+  if (!channel) return { tone: "neutral", label: checking ? "Consultando…" : "Sin verificar" };
+  if (!channel.configured) return { tone: "neutral", label: "Sin configurar" };
+  if (!channel.running || channel.last_error) return { tone: "warn", label: "Requiere atención" };
+  return { tone: "good", label: "En marcha" };
+}
+
+export function Overview({ navigate }: { navigate: Navigate }) {
   const [snapshot, setSnapshot] = useState<Snapshot>(initial);
   const [refresh, setRefresh] = useState(0);
   const [refreshing, setRefreshing] = useState(true);
@@ -65,7 +70,7 @@ export function Overview({ navigate, light }: {
     let active = true;
     const load = async () => {
       setRefreshing(true);
-      const paths = ["/api/v1/tools/notifications/history?limit=50", "/api/v1/tools/reminders", "/api/v1/channels/whatsapp", "/api/v1/activity/memories", ...workers.map(worker => `/api/v1/skills/${worker.toLowerCase()}/jobs`), ...services.map(id => `/api/v1/skills/${id}/configuration`)];
+      const paths = ["/api/v1/tools/notifications/history?limit=50", "/api/v1/tools/reminders", "/api/v1/channels/whatsapp", "/api/v1/activity/memories", ...workers.map(worker => `/api/v1/skills/${worker.toLowerCase()}/jobs`), ...services.map(id => `/api/v1/skills/${id}/configuration`), "/api/v1/channels/telegram"];
       const results = await Promise.allSettled(paths.map(async path => {
         const response = await apiFetch(path);
         if (!response.ok) throw new Error("unavailable");
@@ -73,7 +78,7 @@ export function Overview({ navigate, light }: {
       }));
       if (!active) return;
       const data = results.map(result => result.status === "fulfilled" ? result.value : null);
-      setSnapshot({ events: data[0], reminders: data[1], channel: data[2], activity: recentActivity(data[0], data[3], data.slice(4, 6)), services: Object.fromEntries(services.map((id, index) => [id, data[index + 6]?.configured ?? null])), refreshed: new Date() });
+      setSnapshot({ events: data[0], reminders: data[1], channels: { whatsapp: data[2], telegram: data.at(-1) }, activity: recentActivity(data[0], data[3], data.slice(4, 6)), services: Object.fromEntries(services.map((id, index) => [id, data[index + 6]?.configured ?? null])), refreshed: new Date() });
       setRefreshing(false);
     };
     void load();
@@ -86,7 +91,6 @@ export function Overview({ navigate, light }: {
   const activeReminders = snapshot.reminders?.filter(item => item.status === "active") ?? [];
   const upcoming = activeReminders.filter(item => item.next_check_at).sort((a, b) => Date.parse(a.next_check_at!) - Date.parse(b.next_check_at!)).slice(0, 3);
   const pending = snapshot.events?.filter(event => ["pending", "sending", "retry"].includes(event.whatsapp_status)).length;
-  const channelLive = snapshot.channel?.configured && snapshot.channel.running;
   const metrics = [
     { icon: "skills" as const, label: "Habilidades configuradas", value: verified ? `${configured} / ${serviceCount}` : "—", note: verified < serviceCount ? "Verificación parcial" : "Tus servicios personales", view: "Skills" as const, tone: "violet" },
     { icon: "clock" as const, label: "Recordatorios activos", value: snapshot.reminders ? String(activeReminders.length) : "—", note: "El tiempo también trabaja para ti", view: "Tools" as const, tool: "reminders" as const, tone: "mint" },
@@ -94,9 +98,34 @@ export function Overview({ navigate, light }: {
   ];
   return <div className="overview">
     <div className="overview-intro"><div><h1>Consola de administración</h1></div><button className="subtle-button" disabled={refreshing} onClick={() => setRefresh(value => value + 1)}><Icon name="bolt" size={16}/>{refreshing ? "Sincronizando…" : "Sincronizar"}</button></div>
-    <section className="command-hero">
-      <div className="hero-copy"><StatusTag tone={channelLive ? "good" : "neutral"}>{channelLive ? "WhatsApp en marcha" : snapshot.channel?.configured ? "WhatsApp iniciando" : "Artemis platform - Admin Console"}</StatusTag><img className="hero-artwork" src="/images/artemis_core.png" alt="Artemis meditando en una red luminosa" width={1672} height={941}/><p>Conecta tus servicios, programa lo importante y deja que los avisos te encuentren.</p><div className="hero-actions"><button className="primary" onClick={() => navigate("Tools", "reminders")}><Icon name="clock" size={18}/>Crear recordatorio<Icon name="arrow" size={18}/></button><button className="hero-link" onClick={() => navigate("Skills")}>Ver habilidades<Icon name="arrow" size={16}/></button></div></div>
-      <PixelScene light={light}/>
+    <section className="panel operations-panel" aria-labelledby="operations-title">
+      <div className="operations-main">
+        <h2 id="operations-title">Centro de operaciones</h2>
+        <p>Programa recordatorios y revisa los avisos de Artemis.</p>
+        <div className="operations-actions">
+          <button className="primary" onClick={() => navigate("Tools", "reminders")}>
+            <Icon name="clock" size={17}/>Crear recordatorio
+          </button>
+          <button onClick={() => navigate("Tools", "notifications")}>
+            <Icon name="bell" size={17}/>Consultar avisos
+          </button>
+        </div>
+      </div>
+      <div className="operations-channels">
+        <div className="operations-channel-heading">
+          <h3>Estado de canales</h3>
+          <button className="text-button" onClick={() => navigate("Channels")}>
+            Gestionar canales<Icon name="arrow" size={15}/>
+          </button>
+        </div>
+        <ul>{(["whatsapp", "telegram"] as const).map(id => {
+          const status = channelStatus(snapshot.channels[id], refreshing && snapshot.refreshed === null);
+          return <li key={id}>
+            <span><Icon name="channels" size={17}/>{id === "whatsapp" ? "WhatsApp" : "Telegram"}</span>
+            <StatusTag tone={status.tone}>{status.label}</StatusTag>
+          </li>;
+        })}</ul>
+      </div>
     </section>
     <section className="metric-grid" aria-label="Resumen del sistema">{metrics.map(metric => <button key={metric.label} className={`metric-card ${metric.tone}`} onClick={() => navigate(metric.view, metric.tool)}><div className="metric-top"><span className="metric-icon"><Icon name={metric.icon}/></span><Icon name="arrow" size={16}/></div><strong>{metric.value}</strong><span className="metric-label">{metric.label}</span><small>{metric.note}</small></button>)}</section>
     <div className="dashboard-columns">
