@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 
 import asyncpg
 
+from app.infrastructure.context_store import SCHEMA, ContextStore
+
 DEFAULT_PROVIDERS = ["codex", "agy"]
 
 
@@ -66,6 +68,9 @@ class BridgeStore:
             );
         """)
 
+        await self.pool.execute(SCHEMA)
+        self.context = ContextStore(self.pool)
+
     async def settings(self) -> BridgeSettings | None:
         row = await self.pool.fetchrow("SELECT enabled, url FROM bridge_settings")
         return BridgeSettings(row["enabled"], row["url"]) if row else None
@@ -119,17 +124,20 @@ class BridgeStore:
             provider, json.dumps(observations) if observations is not None else None)
         return result == "UPDATE 1"
 
-    async def finish(self, row: asyncpg.Record, reply: str, provider: str | None) -> None:
+    async def finish(
+        self, row: asyncpg.Record, reply: str, provider: str | None,
+        *, context_results: list[dict[str, str]] | None = None,
+    ) -> None:
         await self.pool.execute("""
             WITH completed AS (
                 UPDATE bridge_turns SET phase='done', reply=$3, provider=$4,
                     payload=payload - 'image_context' - 'approval_ids' - 'skills' - 'persona',
-                    observations='[]'::jsonb,
+                    observations='[]'::jsonb, context_results=$5::jsonb,
                     decision=NULL, lease=NULL, lease_until=NULL
                 WHERE id=$1 AND lease=$2 AND lease_until > now() RETURNING id
             )
             INSERT INTO bridge_outbox (turn_id) SELECT id FROM completed
-        """, row["id"], row["lease"], reply, provider)
+        """, row["id"], row["lease"], reply, provider, json.dumps(context_results or []))
 
     async def history(self, row: asyncpg.Record) -> list[dict[str, str]]:
         previous = await self.pool.fetch("""

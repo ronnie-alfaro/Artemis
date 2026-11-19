@@ -26,6 +26,7 @@ from app.agents.terraquake import TerraQuakeAgent
 from app.agents.usenet import UsenetAgent
 from app.api.antigravity import install_antigravity_routes
 from app.api.codex import install_codex_routes
+from app.api.context_builder import router as context_builder_router
 from app.api.conversation_bridge import router as conversation_bridge_router
 from app.api.curiosity import router as curiosity_router
 from app.api.memory import install_memory_routes
@@ -556,6 +557,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(curiosity_router)
     app.include_router(conversation_bridge_router)
+    app.include_router(context_builder_router)
     app.state.orchestrator = orchestrator
     native = NativeTools(
         orchestrator.tools, orchestrator.approvals,  # type: ignore[attr-defined]

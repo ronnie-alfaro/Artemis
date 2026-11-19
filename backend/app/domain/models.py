@@ -43,6 +43,7 @@ class Permission(BaseModel):
 class AgentCapability(BaseModel):
     name: str
     description: str
+    dependencies: list[str] = Field(default_factory=list)
     help_text: str | None = Field(
         default=None,
         description="User-facing instructions shown when this capability is assigned to a channel.",

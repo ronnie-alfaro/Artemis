@@ -130,3 +130,12 @@ La interfaz está en español e incluye gestión de agentes, habilidades, herram
 La API expone `/api/v1/health`, `/api/v1/ready` y `/api/v1/openapi.json`. Los cambios de PERSONA y asignaciones se aplican sin reiniciar canales. Los cambios de código requieren reconstruir los servicios afectados; los scripts de trabajadores requieren actualizar también su copia instalada y esperar al fin de las tareas activas antes de recargarlos.
 
 Documentación adicional: [diseño y contratos](docs/architecture.md), [decisiones de arquitectura](docs/adr), [hoja de ruta](docs/roadmap.md). Estos documentos incluyen propuestas e hitos históricos; este README resume el runtime actual y señala sus límites.
+
+
+### Context Builder
+
+La consola incluye un [Context Builder en Rust](docs/context-builder.md) para
+configurar PERSONA, historial, memoria pertinente y presupuestos por proveedor.
+La optimización se instala desactivada. El simulador usa el motor real sin
+enviar mensajes ni ejecutar habilidades. Consulta la guía para preparar la
+autenticación interna y comparar estimaciones con los conteos de proveedores.

@@ -72,7 +72,9 @@ class InteractionMemory:
         payload = {
             "agent": message.channel.agent_name or "primary", "event_id": event_id,
             "text": note[:16000],
-            "metadata": {"created_at": message.received_at.isoformat(), "kind": kind},
+            "metadata": {"created_at": message.received_at.isoformat(), "kind": kind,
+                         "channel": message.channel.name,
+                         "conversation_id": str(message.conversation_id)},
         }
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         target = self.directory / f"{event_id}.json"

@@ -8,6 +8,8 @@ services:
       - ${ARTEMIS_ANTIGRAVITY_STATE_DIR:-/var/lib/artemis-antigravity}/queue:/data/antigravity
     environment:
       ARTEMIS_CURIOSITY_ALLOWED_URLS: ${ARTEMIS_CURIOSITY_ALLOWED_URLS:-}
+      ARTEMIS_ADMIN_TOKEN: ${ARTEMIS_ADMIN_TOKEN:-}
+      ARTEMIS_CONTEXT_TOKEN: ${ARTEMIS_CONTEXT_TOKEN:-}
       ARTEMIS_BRIDGE_URL: ${ARTEMIS_BRIDGE_URL:-}
       ARTEMIS_BRIDGE_ALLOWED_URLS: ${ARTEMIS_BRIDGE_ALLOWED_URLS:-}
       ARTEMIS_MEMORY_DIR: /data/memory
@@ -55,6 +57,8 @@ services:
     security_opt: [no-new-privileges:true]
   artemis-bridge:
     build: ./bridge
+    environment:
+      ARTEMIS_CONTEXT_TOKEN: ${ARTEMIS_CONTEXT_TOKEN:-}
     restart: unless-stopped
     networks: [bridge-internal, bridge-egress]
     read_only: true

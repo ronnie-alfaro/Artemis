@@ -11,6 +11,25 @@ use tokio::{
 };
 
 use crate::Decision;
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Usage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cached_input_tokens: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum AdapterOutput {
+    Report {
+        decision: Decision,
+        usage: Option<Usage>,
+    },
+    Legacy(Decision),
+}
 
 pub(crate) fn valid_id(id: &str) -> bool {
     !id.is_empty()
@@ -60,7 +79,10 @@ pub(crate) fn installed() -> Vec<String> {
     ids
 }
 
-pub(crate) async fn invoke(id: &str, prompt: &str) -> Result<Decision, &'static str> {
+pub(crate) async fn invoke(
+    id: &str,
+    prompt: &str,
+) -> Result<(Decision, Option<Usage>), &'static str> {
     if !configured(id) {
         return Err("executable unavailable");
     }
@@ -110,5 +132,8 @@ pub(crate) async fn invoke(id: &str, prompt: &str) -> Result<Decision, &'static 
         let _ = child.wait().await;
     }
     let output = output.map_err(|_| "CLI timed out")??;
-    serde_json::from_slice(&output).map_err(|_| "CLI returned invalid JSON")
+    match serde_json::from_slice(&output).map_err(|_| "CLI returned invalid JSON")? {
+        AdapterOutput::Report { decision, usage } => Ok((decision, usage)),
+        AdapterOutput::Legacy(decision) => Ok((decision, None)),
+    }
 }

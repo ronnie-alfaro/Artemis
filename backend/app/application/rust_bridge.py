@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Any
@@ -10,9 +11,10 @@ from uuid import NAMESPACE_URL, uuid5
 
 import asyncpg
 import httpx
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from app.application.channels import ChannelController
+from app.application.context_builder import ContextSource, redact
 from app.application.conversation import _COMMAND_CONFIRM, _CONFIRM
 from app.application.whatsapp import WhatsAppAgentRuntime
 from app.application.whatsapp_formatting import whatsapp_chunks
@@ -20,6 +22,7 @@ from app.domain.curiosity import CAPABILITY as CURIOSITY_CAPABILITY
 from app.domain.curiosity import catalog_has_query
 from app.domain.models import Channel, ChatResponse, IncomingMessage
 from app.infrastructure.conversation_bridge import BridgeSettings, BridgeStore, TurnPayload
+from app.infrastructure.memory_manager import MemoryManager
 
 logger = logging.getLogger(__name__)
 BASIC = "El asistente está en modo básico. Escribe «ayuda» para ver los comandos disponibles."
@@ -42,9 +45,33 @@ class Decision(BaseModel):
     command: str
 
 
+class Usage(BaseModel):
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    cached_input_tokens: int | None = Field(default=None, ge=0)
+
+
+class SectionMetric(BaseModel):
+    name: str = Field(max_length=40)
+    tokens: int = Field(ge=0)
+
+
+class Attempt(BaseModel):
+    provider: str
+    estimated_tokens: int | None = Field(default=None, ge=0)
+    baseline_tokens: int | None = Field(default=None, ge=0)
+    sections: list[SectionMetric] = Field(default_factory=list, max_length=12)
+    context_ms: int = Field(ge=0)
+    latency_ms: int = Field(ge=0)
+    status: str = Field(max_length=40)
+    usage: Usage | None = None
+    cache_hit: bool = False
+
+
 class Outcome(BaseModel):
     decision: Decision | None = None
     provider: str | None = None
+    attempts: list[Attempt] = Field(default_factory=list, max_length=8)
 
 
 class RustBridge:
@@ -63,6 +90,8 @@ class RustBridge:
         self.controllers = controllers
         self.handle = handle
         self.pending_approvals = pending_approvals
+        self.context_token = os.getenv("ARTEMIS_CONTEXT_TOKEN", "")
+        self.context_source = ContextSource(getattr(store, "context", None), MemoryManager())
         self.tasks: list[asyncio.Task[None]] = []
 
     async def settings(self) -> BridgeSettings:
@@ -77,11 +106,13 @@ class RustBridge:
         return (await self.settings()).enabled
 
     async def request(
-        self, method: str, path: str, *, timeout: float, payload: dict[str, Any] | None = None,
+        self, method: str, path: str, *, timeout: float,
+        payload: dict[str, Any] | None = None, context_auth: bool = False,
     ) -> httpx.Response:
         settings = await self.settings()
         response = await self.client.request(
             method, settings.url + path, timeout=timeout, json=payload,
+            headers={"x-artemis-context-token": self.context_token} if context_auth else None,
         )
         response.raise_for_status()
         return response
@@ -161,26 +192,111 @@ class RustBridge:
             "history": await self.store.history(row), "observations": observations,
             "actions_remaining": actions_remaining,
         }
-        try:
-            response = await self.request("POST", "/v1/decide", timeout=415, payload={
-                "providers": order,
-                "prompt": INSTRUCTIONS + "\n\n" + json.dumps(context, ensure_ascii=False),
-                "capabilities": [skill["capability"] for skill in skills],
-                "actions_remaining": actions_remaining,
-            })
-            outcome = Outcome.model_validate_json(response.content)
-        except (httpx.HTTPError, ValidationError):
-            outcome = Outcome()
+        request = {
+            "providers": order,
+            "prompt": INSTRUCTIONS + "\n\n" + json.dumps(context, ensure_ascii=False),
+            "capabilities": [skill["capability"] for skill in skills],
+            "actions_remaining": actions_remaining,
+        }
+        outcome = Outcome()
+        store = self.context_source.store
+        if store and order:
+            try:
+                settings = await store.effective(f"agent:{row['channel']}:{row['bot']}", order)
+                outcome = await self._context_decision(row, context, request, payload, settings)
+            except (asyncpg.PostgresError, ValidationError):
+                logger.warning("Configuración del Context Builder no disponible")
+        else:
+            outcome = await self._decide(request)
         decision, provider = outcome.decision, outcome.provider
         if decision and decision.capability:
             await self.store.checkpoint(
                 row, "skill", decision=decision.model_dump(), provider=provider,
             )
         elif decision:
-            await self.store.finish(row, decision.reply, provider)
+            await self.store.finish(row, decision.reply, provider, context_results=[
+                {"capability": item["capability"], "result": redact(item["result"][:700])}
+                for item in observations
+            ])
         else:
             results = "\n\n".join(item["result"] for item in observations)
             await self.store.finish(row, (results + "\n\n" if results else "") + BASIC, None)
+
+    async def _decide(self, payload: dict, *, context_auth: bool = False) -> Outcome:
+        try:
+            path = "/v1/context/decide" if context_auth else "/v1/decide"
+            response = await self.request(
+                "POST", path, timeout=415, payload=payload, context_auth=context_auth,
+            )
+            return Outcome.model_validate_json(response.content)
+        except (httpx.HTTPError, ValidationError):
+            return Outcome()
+
+    async def _context_decision(self, row, context: dict, request: dict,
+                                turn: TurnPayload, settings: dict) -> Outcome:
+        source = self.context_source
+        if not isinstance(source, ContextSource):
+            return Outcome()
+        context = {**context, "approvals": [
+            {"id": str(item.id), "agent": item.agent_name}
+            for item in self.pending_approvals(row["conversation"])
+            if str(item.id) in turn["approval_ids"]
+        ]}
+        optimized: dict[str, dict] = {}
+        summaries: dict[str, bool] = {}
+        fallback = [p for p, value in settings.items() if value.fallback == "legacy"]
+        if len(self.context_token) >= 32:
+            try:
+                for provider, options in settings.items():
+                    if options.enabled:
+                        optimized[provider], _, summaries[provider] = await source.prepare(
+                            row, context, INSTRUCTIONS, {provider: options}, persist=True,
+                        )
+            except (asyncpg.PostgresError, OSError, TimeoutError):
+                logger.warning("No se pudieron preparar candidatos de contexto")
+
+        # Keep provider order within a single dispatch and let Rust own failover.
+        eligible = [p for p in settings
+                    if p in optimized or not settings[p].enabled or p in fallback]
+        legacy_prompt = request["prompt"]
+        if any(value.enabled for value in settings.values()):
+            legacy_prompt = redact(legacy_prompt)
+        started = asyncio.get_running_loop().time()
+        outcome = await self._decide({
+            **request, "providers": eligible, "contexts": optimized,
+            "scope": f"{row['channel']}:{row['bot']}:{row['conversation']}",
+            "prompt": legacy_prompt if any(p not in optimized for p in eligible) else "",
+        }, context_auth=bool(optimized))
+        # A missing optimized endpoint or a protected-budget rejection executed no skill.
+        if optimized and not outcome.decision and asyncio.get_running_loop().time() - started < 30:
+            rejected = {a.provider for a in outcome.attempts if a.status == "budget_or_config"}
+            retry = [p for p in fallback if p in rejected or not outcome.attempts]
+            if retry:
+                previous = outcome.attempts
+                outcome = await self._decide({
+                    **request, "providers": retry, "prompt": legacy_prompt,
+                })
+                outcome.attempts = previous + outcome.attempts
+        for attempt in outcome.attempts:
+            options = settings.get(attempt.provider)
+            if options is None or not options.metrics:
+                continue
+            values = attempt.model_dump(exclude={"provider"})
+            values["summary_generated"] = summaries.get(attempt.provider, False)
+            candidates = optimized.get(attempt.provider, {}).get("memories", [])
+            values["memory_candidates"] = len(candidates)
+            values["fallback"] = options.enabled and attempt.estimated_tokens is None
+            if (attempt.usage and options.input_price_per_million is not None
+                    and options.output_price_per_million is not None):
+                values["estimated_cost"] = (
+                    attempt.usage.input_tokens * options.input_price_per_million
+                    + attempt.usage.output_tokens * options.output_price_per_million
+                ) / 1_000_000
+            try:
+                await source.store.record(row, attempt.provider, values)
+            except asyncpg.PostgresError:
+                logger.warning("No se pudieron guardar las métricas de contexto")
+        return outcome
 
     async def _skill(
         self, row: asyncpg.Record, payload: TurnPayload, observations: list[dict[str, str]],

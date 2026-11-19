@@ -1,0 +1,16 @@
+.context-panel { display: grid; gap: 14px; }
+.context-panel fieldset { border: 1px solid var(--line); padding: 14px; min-width: 0; }
+.context-fields { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
+.context-fields label, .context-panel label { display: grid; gap: 5px; }
+.context-fields input[type=checkbox] { justify-self: start; }
+.context-panel textarea { width: 100%; resize: vertical; }
+.context-panel > button { justify-self: start; }
+.context-table { overflow-x: auto; }
+.context-table table { width: 100%; border-collapse: collapse; }
+.context-table :is(td, th) { padding: 6px; border-bottom: 1px solid var(--line); text-align: left; }
+.context-table input[type=number] { width: 78px; }
+.context-table small { display: block; color: var(--muted); }
+.context-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.context-sample { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.context-sample label { display: block; }
+.context-sample meter { display: block; width: min(100%, 320px); }

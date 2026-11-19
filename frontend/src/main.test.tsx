@@ -40,7 +40,7 @@ describe("Artemis en español", () => {
   it("shows Spanish navigation and removes executions and approval pages", async () => {
     render(<App/>);
     const nav = await screen.findByRole("navigation", { name: "Navegación principal" });
-    expect(within(nav).getAllByRole("button").map(item => item.getAttribute("aria-label"))).toEqual(["Inicio", "Agentes", "Habilidades", "Herramientas", "Cerebro", "Canales", "Ajustes"]);
+    expect(within(nav).getAllByRole("button").map(item => item.getAttribute("aria-label"))).toEqual(["Inicio", "Agentes", "Habilidades", "Herramientas", "Cerebro", "Context Builder", "Canales", "Ajustes"]);
     expect(screen.queryByText("Runs")).toBeNull(); expect(screen.queryByText("Approvals")).toBeNull();
     expect(screen.queryByRole("button", { name: "Webhooks" })).toBeNull();
     expect(await screen.findByText("WhatsApp en marcha")).toBeDefined();

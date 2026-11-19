@@ -60,6 +60,8 @@ class ConversationAgent:
                 "capability": capability.name,
                 "description": capability.description,
                 "help": capability.help_text or "",
+                **({"dependencies": ",".join(capability.dependencies)}
+                   if capability.dependencies else {}),
             }
             for agent in self.registry.list_agents()
             for capability in agent.capabilities

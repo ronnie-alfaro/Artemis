@@ -86,3 +86,8 @@ Ejecuta la imagen del bridge con `bridge/tests/adapters` montado en
 instancia y `ARTEMIS_BRIDGE_TEST_DSN` a un PostgreSQL desechable. Los adaptadores
 simulan un proveedor que falla tras ejecutar una habilidad, un respaldo que
 utiliza el resultado guardado y la caída de todos los proveedores.
+
+
+El [Context Builder](context-builder.md) añade dos rutas internas autenticadas
+para ensamblar o simular contexto. La ruta heredada sigue disponible cuando se
+desactiva la optimización.

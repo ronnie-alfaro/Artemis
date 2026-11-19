@@ -131,6 +131,42 @@ class MemoryManager:
                     for meta, distance in zip(result["metadatas"][0], result["distances"][0],
                                               strict=True)]
 
+    def persona_versions(self, agent_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            target = self._collection("agent_persona")
+            result = target.get(where={"agent_id": agent_id}, include=["documents", "metadatas"])
+        return [
+            {**metadata, "text": document}
+            for document, metadata in zip(result["documents"], result["metadatas"], strict=True)
+        ]
+
+    def save_persona_version(self, agent_id: str, text: str, metadata: dict[str, Any]) -> None:
+        self._validate(agent_id, text)
+        key = str(uuid5(NAMESPACE_URL, f"persona:{agent_id}:{metadata['version']}"))
+        with self._lock:
+            target = self._collection("agent_persona")
+            if not target.get(ids=[key], include=[])["ids"]:
+                target.add(ids=[key], documents=[text], embeddings=self._embed(text),
+                           metadatas=[{**metadata, "agent": agent_id, "agent_id": agent_id}])
+
+    def context_memories(self, agent: str, channel: str, conversation: str,
+                         text: str, limit: int) -> list[dict[str, Any]]:
+        with self._lock:
+            target = self._collection("agent_memory")
+            scope = {"$and": [{"agent": agent}, {"channel": channel},
+                              {"conversation_id": conversation}]}
+            if not target.get(where=scope, limit=1, include=[])["ids"]:
+                return []
+            result = target.query(query_embeddings=self._embed(text), n_results=limit,
+                                  where=scope, include=["documents", "distances", "metadatas"])
+        return [
+            {**metadata, "text": document, "distance": distance}
+            for document, distance, metadata in zip(
+                result["documents"][0], result["distances"][0], result["metadatas"][0],
+                strict=True,
+            )
+        ]
+
     def recent_memories(self, limit: int = 10) -> list[dict[str, Any]]:
         with self._lock:
             target = self._collection("agent_memory")
