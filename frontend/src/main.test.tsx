@@ -43,18 +43,21 @@ describe("Artemis en español", () => {
     expect(within(nav).getAllByRole("button").map(item => item.getAttribute("aria-label"))).toEqual(["Inicio", "Agentes", "Habilidades", "Herramientas", "Cerebro", "Context Builder", "Canales", "Ajustes"]);
     expect(screen.queryByText("Runs")).toBeNull(); expect(screen.queryByText("Approvals")).toBeNull();
     expect(screen.queryByRole("button", { name: "Webhooks" })).toBeNull();
-    expect(await screen.findByText("En marcha")).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "Consola de administración", level: 1 })).toBeDefined();
   });
 
-  it("shows channel status and opens notifications from the operations panel", async () => {
+  it("shows component states inside the single console heading panel", async () => {
     const { container } = render(<App/>);
-    const panel = await screen.findByRole("region", { name: "Centro de operaciones" });
-    const channels = within(panel).getAllByRole("listitem");
-    expect(await within(channels[0]).findByText("En marcha")).toBeDefined();
-    expect(within(channels[1]).getByText("Sin configurar")).toBeDefined();
+    const panel = await screen.findByRole("region", { name: "Consola de administración" });
+    expect(screen.getAllByRole("heading", { name: "Consola de administración" })).toHaveLength(1);
+    const components = within(panel).getAllByRole("listitem");
+    expect(await within(components[0]).findByText("En línea")).toBeDefined();
+    expect(within(components[1]).getByText("Seerr")).toBeDefined();
+    expect(await within(components[1]).findByText("Sin configurar")).toBeDefined();
+    expect(within(panel).queryByText("WhatsApp")).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Crear recordatorio" })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Consultar avisos" })).toBeNull();
     expect(container.querySelectorAll(".artemis-mascot canvas")).toHaveLength(2);
-    fireEvent.click(within(panel).getByRole("button", { name: "Consultar avisos" }));
-    expect(await screen.findByRole("heading", { name: "Notificaciones" })).toBeDefined();
   });
 
   it("places WhatsApp Curiosidad under Meta Habilidades", async () => {

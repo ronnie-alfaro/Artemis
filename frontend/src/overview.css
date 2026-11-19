@@ -9,35 +9,28 @@
 .operations-main {
   padding: clamp(22px, 3.2vw, 42px);
   border-inline-start: 3px solid var(--accent);
+  display: grid;
+  align-content: center;
+  gap: 20px;
 }
 
-.operations-main h2 {
+.operations-main h1 {
   font-family: var(--pixel-title);
   font-size: clamp(31px, 4vw, 48px);
   line-height: 1.05;
-  margin: 0 0 10px;
+  margin: 0;
 }
 
-.operations-main p {
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.operations-actions {
+.operations-refresh {
   display: flex;
   flex-wrap: wrap;
-  gap: 9px;
-  margin-top: 22px;
-}
-
-.operations-actions button {
-  min-height: 44px;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
   font-size: 13px;
 }
 
-.operations-channels {
+.operations-components {
   display: grid;
   align-content: center;
   gap: 12px;
@@ -46,23 +39,21 @@
   background: var(--surface-raised);
 }
 
-.operations-channel-heading,
-.operations-channels li,
-.operations-channels li > span:first-child {
+.operations-component-heading,
+.operations-components li {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.operations-channel-heading,
-.operations-channels li { justify-content: space-between; }
-.operations-channel-heading { flex-wrap: wrap; }
-.operations-channel-heading h3 { font-size: 15px; }
-.operations-channels ul { margin: 0; padding: 0; list-style: none; }
-.operations-channels li { min-height: 42px; border-top: 1px solid var(--line); font-size: 14px; }
-.operations-channels li > span:first-child .icon { color: var(--muted); }
+.operations-component-heading,
+.operations-components li { justify-content: space-between; }
+.operations-component-heading { flex-wrap: wrap; }
+.operations-component-heading h2 { font-size: 15px; }
+.operations-components ul { margin: 0; padding: 0; list-style: none; }
+.operations-components li { min-height: 34px; border-top: 1px solid var(--line); font-size: 14px; }
 
 @media (max-width: 760px) {
   .overview > .panel.operations-panel { grid-template-columns: 1fr; }
-  .operations-channels { border-inline-start: 0; border-top: 1px solid var(--line); }
+  .operations-components { border-inline-start: 0; border-top: 1px solid var(--line); }
 }
