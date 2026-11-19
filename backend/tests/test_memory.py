@@ -110,7 +110,7 @@ def test_image_memories_expire_and_semantic_search_is_conversation_scoped(tmp_pa
     expired = manager.remember_event("alice", "image-old", "cat old",
                                     {**metadata, "expires_at": "1"})
     assert manager.search_images("alice", "chat-a", "cat")[0]["image_id"] == "img-a"
-    assert manager.browse("agent_memory")["total"] == 2
+    assert manager.browse("agent_memory")["total"] == 0
     assert all(item["id"] != expired for item in manager.search("agent_memory", "alice", "cat"))
 
 

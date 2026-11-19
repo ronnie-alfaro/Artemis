@@ -19,6 +19,13 @@ class MemoryExploreRequest(BaseModel):
 
 
 def install_memory_routes(app: FastAPI, memory: MemoryManager) -> None:
+    @app.get("/api/v1/activity/memories")
+    def recent_memories() -> list[dict[str, object]]:
+        try:
+            return memory.recent_memories()
+        except Exception as exc:
+            raise HTTPException(503, "No se pudo consultar la actividad de memoria.") from exc
+
     @app.get("/api/v1/memory/{collection}")
     def browse_memory(
         collection: MemoryCollection,

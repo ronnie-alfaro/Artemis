@@ -1,14 +1,14 @@
 import { useEffect, useRef } from "react";
 import { buildScenery } from "./scenery";
-import { CELL, makeSpriteSheet } from "./sprites";
+import { CELL, makeDeerSheet, makeSpriteSheet } from "./sprites";
 
-const deities = ["athena", "apollo", "zeus"] as const;
+const figures = ["artemis", "deer"] as const;
 
-function SceneFigure({ deity }: { deity: typeof deities[number] }) {
+function SceneFigure({ deity }: { deity: typeof figures[number] }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const context = canvas.current?.getContext("2d");
-    const sheet = context && makeSpriteSheet(deity);
+    const sheet = context && (deity === "deer" ? makeDeerSheet() : makeSpriteSheet(deity));
     if (sheet) context.drawImage(sheet, 0, 0);
   }, [deity]);
 
@@ -44,6 +44,6 @@ export function PixelScene({ light }: { light: boolean }) {
 
   return <div className="pixel-scene" ref={host} aria-hidden="true">
     <canvas ref={canvas}/>
-    {deities.map(deity => <SceneFigure key={deity} deity={deity}/>)}
+    {figures.map(deity => <SceneFigure key={deity} deity={deity}/>)}
   </div>;
 }

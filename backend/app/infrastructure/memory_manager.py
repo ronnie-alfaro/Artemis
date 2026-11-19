@@ -8,6 +8,9 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 COLLECTIONS = ("agent_persona", "agent_memory", "agent_relations")
+# Keep the former transcript collection offline so the reset is reversible.
+_STORAGE_NAMES = {"agent_memory": "artemis_selected_memories"}
+_IMAGE_COLLECTION = "artemis_image_context"
 MEMORY_MAP_LIMIT = 300
 MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
@@ -27,7 +30,7 @@ class MemoryManager:
         self._lock = RLock()
 
     def _collection(self, name: str) -> Any:
-        if name not in COLLECTIONS:
+        if name not in (*COLLECTIONS, _IMAGE_COLLECTION):
             raise ValueError("Colección de memoria no válida.")
         if self._client is None:
             import chromadb
@@ -36,9 +39,10 @@ class MemoryManager:
             self._client = chromadb.PersistentClient(
                 path=self.path, settings=Settings(anonymized_telemetry=False),
             )
-            for collection in COLLECTIONS:
+            for collection in (*COLLECTIONS, _IMAGE_COLLECTION):
                 self._collections[collection] = self._client.get_or_create_collection(
-                    collection, embedding_function=None, metadata={"hnsw:space": "cosine"},
+                    _STORAGE_NAMES.get(collection, collection),
+                    embedding_function=None, metadata={"hnsw:space": "cosine"},
                 )
         return self._collections[name]
 
@@ -69,14 +73,18 @@ class MemoryManager:
 
     def remember_event(self, agent: str, event_id: str, text: str,
                        metadata: dict[str, str]) -> str:
-        """Idempotent automatic memories, isolated from manual memories."""
+        """Store selected memories and temporary image indexes idempotently."""
         self._validate(agent, text)
         key = str(uuid5(NAMESPACE_URL, f"artemis-event:{agent}:{event_id}"))
         with self._lock:
-            target = self._collection("agent_memory")
+            image = metadata.get("kind") == "image"
+            target = self._collection(_IMAGE_COLLECTION if image else "agent_memory")
+            if image:
+                self._purge_expired_images(target)
             if not target.get(ids=[key], include=[])["ids"]:
                 target.add(ids=[key], documents=[text], embeddings=self._embed(text),
-                           metadatas=[{**metadata, "agent": agent, "source": "interaction"}])
+                           metadatas=[{**metadata, "agent": agent,
+                                       "source": "image_context" if image else "selected"}])
         return key
 
     @staticmethod
@@ -94,8 +102,6 @@ class MemoryManager:
             raise ValueError("El límite debe estar entre 1 y 50.")
         with self._lock:
             target = self._collection(collection)
-            if collection == "agent_memory":
-                self._purge_expired_images(target)
             if target.count() == 0:
                 return []
             result = target.query(
@@ -112,7 +118,7 @@ class MemoryManager:
 
     def search_images(self, agent: str, scope: str, text: str) -> list[dict[str, Any]]:
         with self._lock:
-            target = self._collection("agent_memory")
+            target = self._collection(_IMAGE_COLLECTION)
             self._purge_expired_images(target)
             if not target.count():
                 return []
@@ -125,6 +131,18 @@ class MemoryManager:
                     for meta, distance in zip(result["metadatas"][0], result["distances"][0],
                                               strict=True)]
 
+    def recent_memories(self, limit: int = 10) -> list[dict[str, Any]]:
+        with self._lock:
+            target = self._collection("agent_memory")
+            result = target.get(offset=max(0, target.count() - limit), limit=limit,
+                                include=["documents", "metadatas"])
+        return [
+            {"id": key, "text": text, "metadata": metadata}
+            for key, text, metadata in zip(
+                result["ids"], result["documents"], result["metadatas"], strict=True,
+            )
+        ]
+
     def browse(self, collection: str, agent: str | None = None,
                offset: int = 0, limit: int = 20) -> dict[str, Any]:
         """Read a bounded page for the authenticated administrative panel, without encoding."""
@@ -132,8 +150,6 @@ class MemoryManager:
             raise ValueError("Paginación no válida.")
         with self._lock:
             target = self._collection(collection)
-            if collection == "agent_memory":
-                self._purge_expired_images(target)
             filters = {"agent": agent} if agent else None
             # Count the selected scope without reading document or vector payloads.
             total = len(target.get(where=filters, include=[])["ids"]) if agent else target.count()
@@ -152,8 +168,6 @@ class MemoryManager:
         """Find neighbors in the selected administrative memory scope."""
         with self._lock:
             target = self._collection(collection)
-            if collection == "agent_memory":
-                self._purge_expired_images(target)
             if not target.count() or ids == []:
                 return []
             filters = {"agent": agent} if agent else None

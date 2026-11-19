@@ -19,6 +19,7 @@ type Notification = {
   id: string; source: string; event: string; title: string; message: string;
   received_at: string; whatsapp_status: string; whatsapp_error: string | null;
 };
+const sourceLabels: Record<string, string> = { manual: "Envíos directos", reminders: "Recordatorios", seerr: "Seerr" };
 const statuses: Record<string, string> = {
   pending: "En cola", sending: "Enviando", sent: "Enviado a WhatsApp", retry: "Pendiente de reintento",
   not_requested: "Guardado sin envío",
@@ -44,6 +45,8 @@ export function Tools({ apiFetch, activeTool, onSelectTool }: Props) {
 function NotificationsTool({ apiFetch }: Props) {
   const [configuration, setConfiguration] = useState<Configuration | null>(null);
   const [settings, setSettings] = useState<Settings>({ enabled: true, channel: "whatsapp", recipient_id: null });
+  const [knownSources, setKnownSources] = useState(Object.keys(sourceLabels));
+  const [source, setSource] = useState("");
   const [history, setHistory] = useState<Notification[]>([]);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
@@ -68,13 +71,16 @@ function NotificationsTool({ apiFetch }: Props) {
   useEffect(() => {
     let active = true;
     setHistoryError("");
-    void apiFetch("/api/v1/tools/notifications/history?limit=50").then(async response => {
+    void apiFetch(`/api/v1/tools/notifications/history?limit=50${source ? `&source=${encodeURIComponent(source)}` : ""}`).then(async response => {
       if (!response.ok) throw new Error("history");
       const items = await response.json() as Notification[];
-      if (active) setHistory(items);
+      if (active) {
+        setHistory(items);
+        setKnownSources(previous => [...new Set([...previous, ...items.map(item => item.source)])]);
+      }
     }).catch(() => { if (active) setHistoryError("No se pudo cargar el historial."); });
     return () => { active = false; };
-  }, [apiFetch, refresh]);
+  }, [apiFetch, refresh, source]);
 
   const save = async () => {
     setSaving(true); setError(""); setStatus("");
@@ -108,7 +114,7 @@ function NotificationsTool({ apiFetch }: Props) {
   const ready = configuration?.storage_available && configuration.whatsapp_configured && configuration.settings.enabled;
   return <>
     <h2 className="tool-heading">Notificaciones</h2>
-    <p className="tool-description">Envía avisos desde las habilidades o directamente desde aquí.</p>
+    <p className="tool-description">Consulta avisos de habilidades, recordatorios, webhooks y envíos directos.</p>
     <div className="notification-grid">
       <section className="panel notification-settings">
         <h3>Configuración</h3>
@@ -131,10 +137,15 @@ function NotificationsTool({ apiFetch }: Props) {
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
     <section className="panel notification-history">
       <div className="notification-history-head"><h3>Historial de notificaciones</h3><button onClick={() => setRefresh(value => value + 1)}>Actualizar historial</button></div>
+      <label>Origen<select value={source} onChange={event => { setHistory([]); setSource(event.target.value); }}>
+        <option value="">Todos los orígenes</option>
+        {knownSources.map(id =>
+          <option key={id} value={id}>{sourceLabels[id] ?? id}</option>)}
+      </select></label>
       {historyError && <p role="alert">{historyError}</p>}
-      {!historyError && history.length === 0 && <p>Todavía no hay notificaciones.</p>}
+      {!historyError && history.length === 0 && <p>{source ? "No hay avisos de este origen." : "Todavía no hay notificaciones."}</p>}
       {!historyError && history.map(item => <article key={item.id}>
-        <div><strong>{item.source === "manual" ? "Envío directo" : item.source === "reminders" ? "Recordatorios" : item.source}</strong><span>{statuses[item.whatsapp_status] ?? item.whatsapp_status}</span><time dateTime={item.received_at}>{new Date(item.received_at).toLocaleString("es-ES")}</time></div>
+        <div><strong>{item.source === "manual" ? "Envío directo" : sourceLabels[item.source] ?? item.source}</strong><span>{statuses[item.whatsapp_status] ?? item.whatsapp_status}</span><time dateTime={item.received_at}>{new Date(item.received_at).toLocaleString("es-ES")}</time></div>
         {item.title && <h3>{item.title}</h3>}<p>{item.message}</p>{item.whatsapp_error && <p>{item.whatsapp_error}</p>}
       </article>)}
     </section>

@@ -224,7 +224,7 @@ def build_orchestrator(
     )
     orchestrator = Orchestrator(
         CapabilityPlanner(agents, selectors), DAGExecutor(agents), sessions,
-        interaction_memory=InteractionMemory(memory, (codex_queue, antigravity_queue)),
+        interaction_memory=InteractionMemory(memory),
     )
     orchestrator.curiosity_tool = curiosity_tool  # type: ignore[attr-defined]
     orchestrator.reminders = reminders  # type: ignore[attr-defined]

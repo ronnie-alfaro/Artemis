@@ -2,7 +2,7 @@ export const CELL = 24;
 export const POSES = { idle: 0, run: 1, jump: 5, wave: 6 } as const;
 
 const palettes = {
-  artemis: { hair: "#674051", cloth: "#e4ecd5", shade: "#9baf9b", accent: "#428c69" },
+  artemis: { hair: "#834b52", cloth: "#eaf3e5", shade: "#a2c4b0", accent: "#327c71" },
   athena: { hair: "#cca079", cloth: "#d8e3f7", shade: "#8b9bc5", accent: "#5870a6" },
   apollo: { hair: "#bc743c", cloth: "#ffe0a4", shade: "#c8905e", accent: "#aa5557" },
   zeus: { hair: "#d0c9d9", cloth: "#f0e9f5", shade: "#ac99bd", accent: "#746293" },
@@ -67,6 +67,14 @@ export function makeSpriteSheet(deity: keyof typeof palettes = "artemis") {
       pixel(skin, 17, 14 + bob, 2, 1);
     }
 
+    if (deity === "artemis") {
+      const trail = running ? 2 + bob : 1;
+      pixel(ink, 7 - trail, 8 + bob, 3 + trail, 4);
+      pixel(hair, 7 - trail, 9 + bob, 3 + trail, 2);
+      pixel(accent, 8, 10 + bob, 2, 1);
+      pixel(gold, 14, 15 + bob, 1, 1);
+    }
+
     // Profile and laurel.
     pixel(ink, 8, 5 + bob, 3, 6);
     pixel(hair, 8, 6 + bob, 2, 4);
@@ -105,6 +113,52 @@ export function makeSpriteSheet(deity: keyof typeof palettes = "artemis") {
       pixel(gold, 19, 10 + bob, 3, 2);
       pixel(gold, 20, 12 + bob, 1, 3);
     }
+  }
+  return sheet;
+}
+
+export function makeDeerSheet() {
+  const sheet = document.createElement("canvas");
+  sheet.width = CELL * 8;
+  sheet.height = CELL;
+  const context = sheet.getContext("2d");
+  if (!context) return null;
+
+  const outline = "#352232";
+  const coat = "#b56e49";
+  const light = "#edc49b";
+  for (let frame = 0; frame < 5; frame++) {
+    const pixel = (color: string, x: number, y: number, w: number, h: number) => {
+      context.fillStyle = color;
+      context.fillRect(frame * CELL + x, y, w, h);
+    };
+    const stride = [0, -3, -1, 3, 1][frame];
+    const lift = frame === 2 || frame === 4 ? 1 : 0;
+    for (const [hip, direction] of [[6, -1], [13, 1]]) {
+      pixel(outline, hip, 16 - lift, 2, 5);
+      pixel(outline, hip + direction * stride, 20 - lift, 2, 3);
+      pixel(coat, hip, 16 - lift, 1, 4);
+      pixel(coat, Math.min(hip, hip + direction * stride), 19 - lift, Math.abs(stride) + 1, 1);
+    }
+    pixel(outline, 3, 11 - lift, 14, 7);
+    pixel(coat, 4, 12 - lift, 12, 5);
+    pixel(light, 5, 13 - lift, 2, 1);
+    pixel(light, 9, 14 - lift, 1, 1);
+    pixel(light, 12, 13 - lift, 1, 1);
+    pixel(outline, 1, 10 - lift, 4, 3);
+    pixel(light, 2, 10 - lift, 2, 2);
+    pixel(outline, 14, 7 - lift, 4, 8);
+    pixel(coat, 15, 8 - lift, 2, 6);
+    pixel(outline, 15, 5 - lift, 6, 5);
+    pixel(coat, 16, 6 - lift, 4, 3);
+    pixel(light, 18, 8 - lift, 3, 1);
+    pixel(outline, 18, 6 - lift, 1, 1);
+    pixel(outline, 21, 7 - lift, 2, 2);
+    pixel(coat, 13, 4 - lift, 3, 2);
+    pixel(light, 16, 1, 1, 4 - lift);
+    pixel(light, 14, 1, 2, 1);
+    pixel(light, 18, 2, 1, 3 - lift);
+    pixel(light, 19, 1, 1, 2);
   }
   return sheet;
 }

@@ -11,7 +11,6 @@ from uuid import UUID, uuid4
 from app.application.interaction_memory import InteractionMemory
 from app.application.registry import AgentRegistry
 from app.application.skill_sessions import SkillSessionRouter
-from app.domain.curiosity import chat_command
 from app.domain.models import (
     AgentExecution,
     AgentRequest,
@@ -161,13 +160,29 @@ class Orchestrator:
 
     async def handle(self, message: IncomingMessage) -> ChatResponse:
         async with self._conversation_locks[(message.channel.name, message.conversation_id)]:
+            if self.interaction_memory and self.interaction_memory.is_explicit(message):
+                try:
+                    saved = await asyncio.to_thread(self.interaction_memory.enqueue, message)
+                except OSError:
+                    saved = False
+                    logging.getLogger(__name__).warning("No se pudo encolar el recuerdo")
+                return ChatResponse(
+                    message=OutgoingMessage(
+                        conversation_id=message.conversation_id, execution_id=uuid4(),
+                        content=("Dejé ese recuerdo en cola para guardarlo." if saved
+                                 else "No pude guardar ese recuerdo."),
+                    ),
+                    plan=ExecutionPlan(conversation_id=message.conversation_id, nodes=[],
+                                       status=ExecutionStatus.COMPLETED if saved
+                                       else ExecutionStatus.FAILED),
+                    executions=[],
+                )
             response = await self._handle(message)
-            if self.interaction_memory and chat_command(message.content) is None:
+            if self.interaction_memory:
                 try:
                     await asyncio.to_thread(self.interaction_memory.enqueue, message, response)
-                except Exception:
-                    logging.getLogger(__name__).warning(
-                        "No se pudo encolar la interacción en memoria")
+                except OSError:
+                    logging.getLogger(__name__).warning("No se pudo encolar el recuerdo")
             return response
 
     async def _handle(self, message: IncomingMessage) -> ChatResponse:

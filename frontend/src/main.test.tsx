@@ -40,42 +40,40 @@ describe("Artemis en español", () => {
   it("shows Spanish navigation and removes executions and approval pages", async () => {
     render(<App/>);
     const nav = await screen.findByRole("navigation", { name: "Navegación principal" });
-    expect(within(nav).getAllByRole("button").map(item => item.getAttribute("aria-label"))).toEqual(["Inicio", "Agentes", "Habilidades", "Herramientas", "Cerebro", "Curiosidad", "Canales", "Ajustes"]);
+    expect(within(nav).getAllByRole("button").map(item => item.getAttribute("aria-label"))).toEqual(["Inicio", "Agentes", "Habilidades", "Herramientas", "Cerebro", "Canales", "Ajustes"]);
     expect(screen.queryByText("Runs")).toBeNull(); expect(screen.queryByText("Approvals")).toBeNull();
     expect(screen.queryByRole("button", { name: "Webhooks" })).toBeNull();
     expect(await screen.findByText("WhatsApp en marcha")).toBeDefined();
   });
 
-  it("submits an exploration and presents operations returned by the server", async () => {
-    const endpoint = "/api/v1/curiosity/explorations";
-    const objective = "Consultar facturas";
-    const specification = '{"openapi":"3.1.0"}';
-    const report = {
-      id: "test-report",
-      objective,
-      status: "ANALYZED",
-      created_at: "2026-01-01T00:00:00Z",
-      history: ["DISCOVERED", "ANALYZED"],
-      specification_version: "3.1.0",
-      operations: [{ method: "GET", path: "/invoices", parameters: [], responses: ["200"] }],
-    };
-    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+  it("places WhatsApp Curiosidad under Meta Habilidades", async () => {
+    window.location.hash = "#/curiosidad";
+    render(<App/>);
+    expect(await screen.findByRole("heading", { name: "Meta Habilidades" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Curiosidad" })).toBeDefined();
+    expect(screen.getByText("Aprende esta API URL_OPENAPI_JSON")).toBeDefined();
+  });
+
+  it("shows learning and finished jobs alongside notifications on Inicio", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const path = String(input);
-      if (path === endpoint && init?.method === "POST") {
-        expect(JSON.parse(String(init.body))).toEqual({ objective, specification });
-        return Promise.resolve(response(report));
-      }
-      return Promise.resolve(response(path === endpoint ? [] : {}));
+      if (path === "/api/v1/activity/memories") return Promise.resolve(response([
+        { id: "learn", text: "Aprendí a usar Curiosidad.", metadata: { kind: "learning", created_at: "2026-01-01T00:00:00Z" } },
+      ]));
+      if (path === "/api/v1/skills/codex/jobs") return Promise.resolve(response([
+        { id: "job", status: "completed", created_at: 1767225600 },
+      ]));
+      if (path.includes("/notifications/history")) return Promise.resolve(response([
+        { id: "notice", title: "Película disponible", source: "seerr", whatsapp_status: "sent", received_at: "2026-01-01T00:00:00Z" },
+      ]));
+      if (path.endsWith("/jobs") || path.endsWith("/reminders")) return Promise.resolve(response([]));
+      return Promise.resolve(response({}));
     });
     render(<App/>);
-    fireEvent.click(await screen.findByRole("button", { name: "Curiosidad" }));
-    await screen.findByText("Todavía no hay exploraciones.");
-    fireEvent.change(screen.getByLabelText("Objetivo"), { target: { value: objective } });
-    fireEvent.change(screen.getByLabelText("Especificación JSON sin credenciales"), {
-      target: { value: specification },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Analizar especificación" }));
-    expect(await screen.findByText("GET /invoices")).toBeDefined();
+    expect(await screen.findByText("Aprendí a usar Curiosidad.")).toBeDefined();
+    expect(screen.getByText("Artemis completó una tarea")).toBeDefined();
+    expect(screen.getByText("Película disponible")).toBeDefined();
+    expect(screen.queryByText(/Cualquier forma, sensación/)).toBeNull();
   });
 
   it("shows Telegram in Channels before the bot is configured", async () => {

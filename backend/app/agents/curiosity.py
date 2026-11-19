@@ -51,6 +51,7 @@ class CuriosityAgent:
     async def run(self, request: AgentRequest) -> AgentResponse:
         message = request.message
         content = HELP
+        metadata = {"execution_id": str(request.execution_id)}
         command = chat_command(message.content)
         if (
             message.channel.name not in {"whatsapp", "telegram"}
@@ -66,7 +67,7 @@ class CuriosityAgent:
                     and _CALL.fullmatch(command)
                 ):
                     content = await self._handle(
-                        message.channel.name, message.conversation_id, command
+                        message.channel.name, message.conversation_id, command, metadata
                     )
             except CuriosityError as error:
                 content = str(error)
@@ -76,11 +77,13 @@ class CuriosityAgent:
             result=AgentResult(
                 agent_name="curiosity",
                 content=content,
-                metadata={"execution_id": str(request.execution_id)},
+                metadata=metadata,
             )
         )
 
-    async def _handle(self, channel: str, conversation: UUID, command: str) -> str:
+    async def _handle(
+        self, channel: str, conversation: UUID, command: str, metadata: dict[str, str],
+    ) -> str:
         learn = _LEARN.fullmatch(command)
         mount = _MOUNT.fullmatch(command)
         api = None
@@ -91,6 +94,7 @@ class CuriosityAgent:
         elif learn:
             api = await self.adapter.mount(channel, conversation, None, learn[1], learn[2])
         if api:
+            metadata["learned_integration"] = api.name
             operations = "\n".join(
                 f"• Curiosidad consultar {api.name} {item.operation}" for item in api.operations
             )
