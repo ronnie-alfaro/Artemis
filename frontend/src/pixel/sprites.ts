@@ -1,6 +1,8 @@
 export const CELL = 24;
 export const POSES = { idle: 0, run: 1, jump: 5, wave: 6 } as const;
 
+export const ARCHERY = { draw: 8, release: 12 } as const;
+
 const palettes = {
   artemis: { hair: "#834b52", cloth: "#eaf3e5", shade: "#a2c4b0", accent: "#327c71" },
   athena: { hair: "#cca079", cloth: "#d8e3f7", shade: "#8b9bc5", accent: "#5870a6" },
@@ -10,7 +12,8 @@ const palettes = {
 
 export function makeSpriteSheet(deity: keyof typeof palettes = "artemis") {
   const sheet = document.createElement("canvas");
-  sheet.width = 8 * CELL;
+  const frameCount = deity === "artemis" ? 16 : 8;
+  sheet.width = frameCount * CELL;
   sheet.height = CELL;
   const ctx = sheet.getContext("2d");
   if (!ctx) return null;
@@ -20,15 +23,17 @@ export function makeSpriteSheet(deity: keyof typeof palettes = "artemis") {
   const skin = "#f1ac83";
   const { hair, cloth, shade, accent } = palettes[deity];
 
-  for (let frame = 0; frame < 8; frame++) {
+  for (let frame = 0; frame < frameCount; frame++) {
     const pixel = (color: string, x: number, y: number, w: number, h: number) => {
       ctx.fillStyle = color;
       ctx.fillRect(frame * CELL + x, y, w, h);
     };
-    const running = frame >= POSES.run && frame < POSES.jump;
+    const aiming = frame >= ARCHERY.draw;
+    const drawn = aiming && frame < ARCHERY.release;
+    const running = aiming || (frame >= POSES.run && frame < POSES.jump);
     const jumping = frame === POSES.jump;
-    const waving = frame >= POSES.wave;
-    const phase = frame - POSES.run;
+    const waving = frame >= POSES.wave && !aiming;
+    const phase = aiming ? (frame - ARCHERY.draw) % 4 : frame - POSES.run;
     const stride = running ? [-3, -1, 3, 1][phase] : 0;
     const bob = Number(running && (phase === 1 || phase === 3));
 
@@ -54,7 +59,14 @@ export function makeSpriteSheet(deity: keyof typeof palettes = "artemis") {
     pixel(ink, 8, 12 + bob, 2, 4);
     pixel(skin, 9, 13 + bob, 1, 2);
     pixel(ink, 16, 12 + bob, 2, 4);
-    if (waving) {
+    if (aiming) {
+      pixel(ink, 15, 11 + bob, 6, 3);
+      pixel(skin, 16, 12 + bob, 4, 1);
+      if (drawn) {
+        pixel(skin, 14, 11 + bob, 2, 1);
+        pixel(cloth, 16, 10 + bob, 3, 1);
+      }
+    } else if (waving) {
       const reach = frame - POSES.wave;
       pixel(ink, 17, 12, 4, 2);
       pixel(ink, 19 + reach, 8, 2, 5);
@@ -89,6 +101,21 @@ export function makeSpriteSheet(deity: keyof typeof palettes = "artemis") {
     pixel("#a2c98e", 14, 3 + bob, 2, 1);
 
     if (deity === "artemis" && !waving) {
+      if (aiming) {
+        pixel("#d3af79", 19, 8 + bob, 1, 2);
+        pixel("#d3af79", 19, 16 + bob, 1, 2);
+        pixel(gold, 20, 9 + bob, 1, 2);
+        pixel(gold, 21, 11 + bob, 1, 4);
+        pixel(gold, 20, 15 + bob, 1, 2);
+        if (drawn) {
+          pixel(cloth, 17, 10 + bob, 1, 2);
+          pixel(cloth, 17, 14 + bob, 1, 2);
+          pixel(gold, 15, 12 + bob, 9, 1);
+        } else {
+          pixel(cloth, 19, 10 + bob, 1, 6);
+        }
+        continue;
+      }
       pixel("#d3af79", 19, 10 + bob, 1, 10);
       pixel(gold, 20, 11 + bob, 1, 2);
       pixel(gold, 21, 13 + bob, 1, 4);

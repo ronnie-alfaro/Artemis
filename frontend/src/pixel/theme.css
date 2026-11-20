@@ -177,6 +177,17 @@
   image-rendering: pixelated;
 }
 
+.mascot-arrow {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 18px;
+  height: 5px;
+  transform-origin: left bottom;
+  background: #fadd99;
+  clip-path: polygon(0 15%, 25% 35%, 72% 35%, 72% 0, 100% 50%, 72% 100%, 72% 65%, 25% 65%, 0 85%, 10% 50%);
+}
+
 @media (max-width: 680px) {
   .artemis-mascot canvas {
     width: 48px;
