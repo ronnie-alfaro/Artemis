@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "./api";
+import { ContextMetricCharts } from "./ContextMetricCharts";
 import { PageHeader } from "./ui";
 import "./context-builder.css";
 
@@ -15,7 +16,7 @@ type Section = { name: string; source: string; tokens: number; reason: string; p
 type Preview = { sections: Section[]; estimated_tokens: number; input_budget: number; baseline_tokens: number;
   capabilities: string[]; prompt: string; runtime_enabled: boolean; persona_revision: string };
 type Metric = { provider: string; channel: string; bot: string; conversation: string; created_at: string;
-  values: { estimated_tokens?: number; baseline_tokens?: number; context_ms: number; latency_ms: number;
+  values: { estimated_tokens?: number | null; baseline_tokens?: number | null; context_ms: number; latency_ms: number;
     fallback: boolean; cache_hit: boolean; summary_generated: boolean; memory_candidates: number;
     status: string; estimated_cost?: number; sections: { name: string; tokens: number }[];
     usage?: { input_tokens: number; output_tokens: number; cached_input_tokens?: number } } };
@@ -76,26 +77,31 @@ function ConfigFields({ fields, defaults, value, update, inherited }: {
 
 function Metrics({ rows }: { rows: Metric[] }) {
   const [group, setGroup] = useState("día");
+  const [chartGroup, setChartGroup] = useState("");
+  const groupKey = (row: Metric) => group === "proveedor" ? row.provider
+    : group === "agente" ? `${row.channel} · ${row.bot}`
+    : group === "conversación" ? row.conversation : row.created_at.slice(0, 10);
   const groups = new Map<string, { attempts: number; estimated: number; baseline: number; actual: number;
-    output: number; measured: number; cached: number; cost: number; overallMs: number; contextMs: number;
-    fallbacks: number; failures: number; summaries: number; memories: number; localHits: number; sections: Record<string, number> }>();
+    comparable: number; output: number; measured: number; cached: number; cost: number; overallMs: number; contextMs: number;
+    fallbacks: number; failures: number; summaries: number; memories: number; localHits: number }>();
   for (const row of rows) {
-    const key = group === "proveedor" ? row.provider : group === "agente" ? `${row.channel} · ${row.bot}`
-      : group === "conversación" ? row.conversation : row.created_at.slice(0, 10);
-    const point = groups.get(key) ?? { attempts: 0, estimated: 0, baseline: 0, actual: 0, output: 0, measured: 0,
+    const key = groupKey(row);
+    const point = groups.get(key) ?? { attempts: 0, estimated: 0, baseline: 0, comparable: 0, actual: 0, output: 0, measured: 0,
       cached: 0, cost: 0, overallMs: 0, contextMs: 0, fallbacks: 0, failures: 0, summaries: 0,
-      memories: 0, localHits: 0, sections: {} };
+      memories: 0, localHits: 0 };
     const sample = row.values;
     point.attempts++;
     point.estimated += sample.estimated_tokens ?? 0;
-    point.baseline += sample.baseline_tokens ?? 0;
+    if (sample.baseline_tokens != null && sample.estimated_tokens != null) {
+      point.baseline += sample.baseline_tokens;
+      point.comparable += sample.estimated_tokens;
+    }
     if (sample.usage) {
       point.measured++;
       point.actual += sample.usage.input_tokens;
       point.output += sample.usage.output_tokens;
       point.cached += sample.usage.cached_input_tokens ?? 0;
     }
-    for (const section of sample.sections) point.sections[section.name] = (point.sections[section.name] ?? 0) + section.tokens;
     point.cost += sample.estimated_cost ?? 0;
     point.overallMs += sample.latency_ms;
     point.contextMs += sample.context_ms;
@@ -107,18 +113,26 @@ function Metrics({ rows }: { rows: Metric[] }) {
     groups.set(key, point);
   }
   const peak = Math.max(1, ...[...groups.values()].map(point => Math.max(point.estimated, point.actual)));
-  return <section className="panel"><h2>Métricas</h2><label>Agrupar por <select value={group} onChange={event => setGroup(event.target.value)}>
+  const selectedGroup = groups.has(chartGroup) ? chartGroup : "";
+  const samples = rows.filter(row => !selectedGroup || groupKey(row) === selectedGroup);
+  return <section className="panel"><h2>Métricas</h2><div className="context-metric-filters">
+    <label>Agrupar por <select value={group} onChange={event => { setGroup(event.target.value); setChartGroup(""); }}>
     {["día", "proveedor", "agente", "conversación"].map(item => <option key={item}>{item}</option>)}</select></label>
-    {groups.size === 0 && <p>Todavía no hay muestras.</p>}
-    {[...groups.entries()].map(([key, point]) => <article className="context-sample" key={key}>
+    {groups.size > 0 && <label>Mostrar <select value={selectedGroup} onChange={event => setChartGroup(event.target.value)}>
+      <option value="">Todos los grupos</option>
+      {[...groups.keys()].map(key => <option key={key}>{key}</option>)}
+    </select></label>}
+    </div>
+    {groups.size > 0 ? <ContextMetricCharts samples={samples.map(row => row.values)} names={names}/>
+      : <p>Todavía no hay muestras.</p>}
+    {[...groups.entries()].filter(([key]) => !selectedGroup || key === selectedGroup).map(([key, point]) => <article className="context-sample" key={key}>
       <h3>{key}</h3>
       <label>Entrada estimada · {point.estimated}<meter max={peak} value={point.estimated}/></label>
       {point.measured > 0 && <label>Entrada reportada · {point.actual}<meter max={peak} value={point.actual}/></label>}
       <p>{point.attempts} intentos · {point.measured} con medición real · Salida reportada {point.output} · Caché del proveedor {point.cached} · Caché local {point.localHits}</p>
-      {point.baseline > 0 && <p>Ahorro estimado {(100 * (1 - point.estimated / point.baseline)).toFixed(1)}% · Base estimada {point.baseline}</p>}
+      {point.baseline > 0 && <p>Ahorro estimado {(100 * (1 - point.comparable / point.baseline)).toFixed(1)}% · Base estimada {point.baseline}</p>}
       <p>Contexto {(point.contextMs / point.attempts).toFixed(1)} ms por intento · Total {(point.overallMs / point.attempts).toFixed(1)} ms por intento · {point.fallbacks} fallbacks · {point.failures} fallos</p>
       <p>{point.summaries} resúmenes · {point.memories} recuerdos candidatos{point.cost > 0 ? ` · Coste estimado ${point.cost.toFixed(6)}` : ""}</p>
-      <p>{Object.entries(point.sections).map(([part, tokens]) => `${names[part] ?? part} ${tokens}`).join(" · ")}</p>
     </article>)}
   </section>;
 }
