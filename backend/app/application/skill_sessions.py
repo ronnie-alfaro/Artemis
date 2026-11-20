@@ -13,9 +13,15 @@ from app.application.iteration import is_iteration_command
 from app.domain.curiosity import CAPABILITY as CURIOSITY_CAPABILITY
 from app.domain.curiosity import CHAT_CONTEXT_KEY, chat_command
 from app.domain.models import IncomingMessage, ReactionOption
-from app.domain.skills import TERRAQUAKE_CAPABILITY, SkillPresentation, help_target
+from app.domain.skills import (
+    MEMORY_CAPABILITY,
+    TERRAQUAKE_CAPABILITY,
+    SkillPresentation,
+    help_target,
+)
 
 SKILL_CAPABILITIES = {
+    "memory": MEMORY_CAPABILITY,
     "curiosity": CURIOSITY_CAPABILITY,
     "github": "github.repositories",
     "terraquake": TERRAQUAKE_CAPABILITY,

@@ -219,7 +219,8 @@ class ConversationSkillWorker:
                     IncomingMessage(
                         id=uuid5(NAMESPACE_URL, f"{job.id}:skill:{len(job.observations)}"),
                         conversation_id=job.conversation_id,
-                        channel=Channel(name=job.channel, allowed_capabilities=allowed),
+                        channel=Channel(name=job.channel, agent_name=job.agent_name,
+                                        allowed_capabilities=allowed),
                         content=command,
                         image_context=("[Imagen temporal " + job.prompt.split(
                             "[Imagen temporal ", 1)[1]

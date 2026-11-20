@@ -9,11 +9,15 @@ from app.application.native_tools import Arguments, NativeTools
 
 class MemoryText(Arguments):
     collection: Literal["agent_persona", "agent_memory", "agent_relations"] = "agent_memory"
-    text: str = Field(min_length=1, max_length=20000)
+    text: str = Field(min_length=1, max_length=16000)
 
 
 class MemorySearch(MemoryText):
-    limit: int = Field(default=5, ge=1, le=100)
+    limit: int = Field(default=5, ge=1, le=50)
+
+
+class MemoryUpdate(MemoryText):
+    id: str = Field(min_length=1, max_length=200)
 
 
 class MemoryForget(Arguments):
@@ -24,4 +28,5 @@ class MemoryForget(Arguments):
 def register_memory_contracts(tools: NativeTools) -> None:
     tools.register("memory.search", "memory", MemorySearch)
     tools.register("memory.remember", "memory", MemoryText)
+    tools.register("memory.update", "memory", MemoryUpdate)
     tools.register("memory.forget", "memory", MemoryForget)

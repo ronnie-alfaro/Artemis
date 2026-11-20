@@ -15,9 +15,11 @@ class SkillPresentation(BaseModel):
         return " ".join(value.split()) if isinstance(value, str) else value
 
 
+MEMORY_CAPABILITY = "memory.records"
 TERRAQUAKE_CAPABILITY = "terraquake.earthquakes"
 
 DEFAULT_PRESENTATIONS = {
+    "memory": SkillPresentation(name="Memoria", description="Busca y edita recuerdos del chat."),
     "terraquake": SkillPresentation(
         name="TerraQuake", description="Consulta sismos y sus datos desde el chat."
     ),

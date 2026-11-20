@@ -8,7 +8,7 @@ type Value = string | number | boolean | null;
 type Settings = Record<string, Value | Record<string, Policy>> & { components: Record<string, Policy> };
 type Revision = { revision: number; updated_at: string };
 type Configuration = { config: Partial<Settings>; defaults: Settings; revisions: Revision[];
-  providers: Record<string, string>; agents: Record<string, string>; internal_auth_configured: boolean };
+  providers: Record<string, string>; agents: Record<string, string>; internal_auth_configured: boolean; bridge_enabled: boolean };
 type Profile = { core: string; extended: string; original: string; suggestion: string; version: string;
   versions: { version: string; revision: string; persona_type: string; text: string; updated_at: string }[] };
 type Section = { name: string; source: string; tokens: number; reason: string; priority: number };
@@ -167,9 +167,12 @@ export function ContextBuilder() {
   useEffect(() => {
     if (!config) return;
     let active = true;
-    void request<Metric[]>("/metrics").then(rows => { if (active) setMetrics(rows); })
+    const refresh = () => void request<Metric[]>("/metrics")
+      .then(rows => { if (active) setMetrics(rows); })
       .catch(failure => { if (active) setError(failure.message); });
-    return () => { active = false; };
+    refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => { active = false; window.clearInterval(timer); };
   }, [config]);
 
   const update = (key: string, value?: Value) => setSettings(previous => {
@@ -270,6 +273,7 @@ export function ContextBuilder() {
           <ul>{preview.sections.map(section => <li key={section.name}>{names[section.name] ?? section.name} · {section.tokens} tokens · {section.reason}</li>)}</ul>
           <details><summary>Contexto entregado al proveedor</summary><pre>{preview.prompt}</pre></details></>}
       </form>
+      {config.bridge_enabled === false && <p role="status">Activa el puente conversacional en Ajustes para registrar métricas de los turnos.</p>}
       <Metrics rows={metrics}/>
     </>}
   </>;

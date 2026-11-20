@@ -20,6 +20,7 @@ from app.agents.codex import CodexAgent
 from app.agents.curiosity import CuriosityAgent
 from app.agents.github import GitHubAgent
 from app.agents.karakeep import KarakeepAgent
+from app.agents.memory import MemoryAgent
 from app.agents.seerr import SeerrAgent
 from app.agents.status import StatusAgent
 from app.agents.terraquake import TerraQuakeAgent
@@ -90,7 +91,7 @@ from app.domain.seerr import (
     SeerrConfigurationStatus,
     SeerrSettings,
 )
-from app.domain.skills import TERRAQUAKE_CAPABILITY
+from app.domain.skills import MEMORY_CAPABILITY, TERRAQUAKE_CAPABILITY
 from app.domain.usenet import UsenetClient, UsenetClientError
 from app.domain.whatsapp import (
     WhatsAppAgentProfile,
@@ -146,9 +147,11 @@ def build_orchestrator(
     approvals = ApprovalStore()
     tools = ToolRegistry(approvals)
     memory = MemoryManager()
-    for action in ("search", "remember", "forget"):
+    for action in ("search", "remember", "update", "forget"):
         tools.register(MemoryTool(memory, action))
     agents = AgentRegistry()
+    memory_agent = MemoryAgent(tools, approvals)
+    agents.register(memory_agent)
     client = seerr_client or UnconfiguredSeerrClient()
     tools.register(SeerrRequestTool(client), authorized_agents={"seerr"})
     seerr_agent = SeerrAgent(client, tools, approvals)
@@ -188,7 +191,7 @@ def build_orchestrator(
     status_agent = StatusAgent(
         {
             capability.name: capability.help_text or capability.description
-            for agent in (*skill_agents, curiosity_agent, terraquake_agent)
+            for agent in (*skill_agents, curiosity_agent, terraquake_agent, memory_agent)
             for capability in agent.definition.capabilities
         }
     )
@@ -720,6 +723,7 @@ def create_app() -> FastAPI:
         configured_capabilities = {
             CURIOSITY_CAPABILITY: getattr(app.state, "curiosity", None) is not None,
             TERRAQUAKE_CAPABILITY: True,
+            MEMORY_CAPABILITY: True,
             "github.repositories": bool(os.getenv("GITHUB_TOKEN")),
             "seerr.media": app.state.seerr_configured,
             "karakeep.bookmarks": app.state.karakeep_configured,
@@ -1022,6 +1026,12 @@ def create_app() -> FastAPI:
             await orchestrator.karakeep_agent.approve_operation(approval)  # type: ignore[attr-defined]
         if approval.agent_name == "usenet" and approval.tool_name.startswith("usenet."):
             await orchestrator.usenet_agent.approve_operation(approval)  # type: ignore[attr-defined]
+        if approval.agent_name == "memory" and approval.tool_name in {
+            "memory.remember", "memory.update",
+        } and "_conversation" in approval.parameters:
+            memory_agent = orchestrator.registry.get("memory")  # type: ignore[attr-defined]
+            if isinstance(memory_agent, MemoryAgent):
+                await memory_agent.approve_operation(approval)
         return orchestrator.approvals.get(approval_id)  # type: ignore[attr-defined,no-any-return]
 
     @app.post("/api/v1/approvals/{approval_id}/reject", response_model=ApprovalRequest)

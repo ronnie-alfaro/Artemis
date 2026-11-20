@@ -78,6 +78,7 @@ async def settings(request: Request, scope: str = "global"):
     config = revisions[0]["config"] if revisions else {}
     return {"config": config, "defaults": ContextSettings(), "revisions": revisions,
             "internal_auth_configured": len(bridge.context_token) >= 32,
+            "bridge_enabled": await bridge.enabled(),
             "agents": {channel: controller.connection.agent_name
                        for channel, controller in bridge.controllers.items()
                        if controller.connection},

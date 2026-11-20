@@ -324,7 +324,8 @@ class RustBridge:
             message = IncomingMessage(
                 id=uuid5(NAMESPACE_URL, f"{row['id']}:skill:{len(observations)}"),
                 conversation_id=row["conversation"],
-                channel=Channel(name=row["channel"], allowed_capabilities=allowed),
+                channel=Channel(name=row["channel"], agent_name=row["bot"],
+                                allowed_capabilities=allowed),
                 content=command,
                 image_context=payload["image_context"],
                 ephemeral_image_context=bool(payload["image_context"]),

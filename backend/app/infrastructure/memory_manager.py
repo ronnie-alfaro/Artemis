@@ -61,14 +61,18 @@ class MemoryManager:
         if not agent.strip() or not value.strip() or len(value) > 16000:
             raise ValueError("Agente y texto/ID obligatorios; máximo 16000 caracteres.")
 
-    def remember(self, collection: str, agent: str, text: str) -> str:
+    def remember(self, collection: str, agent: str, text: str, *,
+                 scope: tuple[str, str] | None = None) -> str:
         self._validate(agent, text)
         with self._lock:
             target = self._collection(collection)
             embedding = self._embed(text)
             memory_id = str(uuid4())
+            metadata = {"agent": agent, "created_at": time.time()}
+            if scope:
+                metadata.update(channel=scope[0], conversation_id=scope[1])
             target.add(ids=[memory_id], documents=[text], embeddings=embedding,
-                       metadatas=[{"agent": agent, "created_at": time.time()}])
+                       metadatas=[metadata])
             return memory_id
 
     def remember_event(self, agent: str, event_id: str, text: str,
@@ -95,18 +99,39 @@ class MemoryManager:
         if expired:
             target.delete(ids=expired)
 
+    @staticmethod
+    def _scope(agent: str, scope: tuple[str, str] | None) -> dict:
+        if scope is None:
+            return {"agent": agent}
+        return {"$and": [{"agent": agent}, {"channel": scope[0]},
+                         {"conversation_id": scope[1]}]}
+
+    def update(self, collection: str, agent: str, memory_id: str, text: str, *,
+               scope: tuple[str, str] | None = None) -> bool:
+        self._validate(agent, memory_id)
+        self._validate(agent, text)
+        if collection not in COLLECTIONS:
+            raise ValueError("Colección de memoria no válida.")
+        with self._lock:
+            target = self._collection(collection)
+            if not target.get(ids=[memory_id], where=self._scope(agent, scope), include=[])["ids"]:
+                return False
+            target.update(ids=[memory_id], documents=[text], embeddings=self._embed(text))
+            return True
+
     def search(self, collection: str, agent: str, text: str,
-               limit: int = 5) -> list[dict[str, Any]]:
+               limit: int = 5, *, scope: tuple[str, str] | None = None) -> list[dict[str, Any]]:
         self._validate(agent, text)
         if type(limit) is not int or not 1 <= limit <= 50:
             raise ValueError("El límite debe estar entre 1 y 50.")
         with self._lock:
             target = self._collection(collection)
-            if target.count() == 0:
+            where = self._scope(agent, scope)
+            if not target.get(where=where, limit=1, include=[])["ids"]:
                 return []
             result = target.query(
                 query_embeddings=self._embed(text), n_results=limit,
-                where={"agent": agent}, include=["documents", "distances"],
+                where=where, include=["documents", "distances"],
             )
             return [
                 {"id": memory_id, "text": document, "distance": distance}
@@ -153,8 +178,7 @@ class MemoryManager:
                          text: str, limit: int) -> list[dict[str, Any]]:
         with self._lock:
             target = self._collection("agent_memory")
-            scope = {"$and": [{"agent": agent}, {"channel": channel},
-                              {"conversation_id": conversation}]}
+            scope = self._scope(agent, (channel, conversation))
             if not target.get(where=scope, limit=1, include=[])["ids"]:
                 return []
             result = target.query(query_embeddings=self._embed(text), n_results=limit,
