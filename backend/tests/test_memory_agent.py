@@ -6,7 +6,9 @@ import pytest
 
 from app.agents.memory import MemoryAgent
 from app.application.approvals import ApprovalStore
-from app.domain.models import AgentRequest, Channel, IncomingMessage
+from app.application.orchestrator import CapabilityPlanner, DAGExecutor, Orchestrator
+from app.application.registry import AgentRegistry
+from app.domain.models import Channel, IncomingMessage
 from app.domain.skills import MEMORY_CAPABILITY
 from app.infrastructure.memory_manager import MemoryManager
 from app.tools.registry import ToolRegistry
@@ -25,19 +27,19 @@ async def test_chat_memory_writes_need_confirmation_and_keep_chat_scope(tmp_path
     tools = ToolRegistry(approvals)
     for action in ("search", "remember", "update"):
         tools.register(MemoryTool(manager, action))
-    agent = MemoryAgent(tools, approvals)
+    agents = AgentRegistry()
+    agents.register(MemoryAgent(tools, approvals))
+    orchestrator = Orchestrator(CapabilityPlanner(agents), DAGExecutor(agents))
     channel = Channel(name="whatsapp", agent_name="artemis",
                       allowed_capabilities=[MEMORY_CAPABILITY])
     chat, other_chat = uuid4(), uuid4()
 
     async def command(content, conversation=chat, sender_channel=channel):
-        response = await agent.run(AgentRequest(
-            execution_id=uuid4(), node_id="memory",
-            message=IncomingMessage(
-                channel=sender_channel, conversation_id=conversation, content=content,
-            ),
+        response = await orchestrator.handle(IncomingMessage(
+            channel=sender_channel, conversation_id=conversation, content=content,
+            required_capabilities=[MEMORY_CAPABILITY],
         ))
-        return response.result.content
+        return response.message.content
 
     assert "no está asignada" in await command(
         "buscar gato", sender_channel=channel.model_copy(update={"allowed_capabilities": []}),

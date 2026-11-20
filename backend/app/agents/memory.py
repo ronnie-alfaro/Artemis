@@ -58,6 +58,7 @@ class MemoryAgent:
     async def run(self, request: AgentRequest) -> AgentResponse:
         return AgentResponse(result=AgentResult(
             agent_name=self.definition.name, content=await self._command(request),
+            metadata={"execution_id": str(request.execution_id)},
         ))
 
     async def _command(self, request: AgentRequest) -> str:
