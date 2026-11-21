@@ -195,12 +195,7 @@ async def simulate(value: Simulation, request: Request):
                     if name not in {"codex.assistant", "antigravity.assistant"}]
     message = IncomingMessage(channel=Channel(name=value.channel),
                               conversation_id=row["conversation"], content=value.message)
-    if value.conversation:
-        catalog = await conversation_agent.catalog_for(message, capabilities)
-    else:
-        catalog = conversation_agent.catalog(
-            [name for name in capabilities if name != "curiosity.api"],
-        )
+    catalog = await conversation_agent.catalog_for(message, capabilities)
     context = {
         "persona": await runtime.persona() or DEFAULT_PERSONA, "greeting": await runtime.greeting(),
         "message": value.message, "image_context": "", "skills": catalog, "observations": [],

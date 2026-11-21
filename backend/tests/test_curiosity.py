@@ -273,3 +273,29 @@ async def test_chat_mount_call_and_retire_with_postgres(monkeypatch: pytest.Monk
         if name:
             await store.unmount("telegram", conversation, name)
         await store.aclose()
+
+
+@pytest.mark.asyncio
+async def test_empty_curiosity_is_discoverable_and_only_read_commands_are_bridge_callable():
+    from app.api.main import build_orchestrator
+    from app.domain.curiosity import CAPABILITY, LIST_COMMAND, catalog_has_query
+    from app.domain.models import Channel, IncomingMessage
+
+    orchestrator = build_orchestrator()
+    agent = orchestrator.registry.get("conversation")
+    message = IncomingMessage(
+        content=LIST_COMMAND,
+        conversation_id=uuid4(),
+        channel=Channel(name="telegram", allowed_capabilities=[CAPABILITY]),
+        required_capabilities=[CAPABILITY],
+    )
+    catalog = await agent.catalog_for(message, [CAPABILITY])
+    assert catalog[0]["capability"] == CAPABILITY
+    assert "Meta-habilidad" in catalog[0]["description"]
+    assert catalog_has_query(catalog, LIST_COMMAND)
+    assert not catalog_has_query(catalog, "Curiosidad retirar films")
+    assert not catalog_has_query(catalog, "Curiosidad consultar films list")
+    assert await agent.catalog_for(message, []) == []
+
+    result = await orchestrator.handle(message)
+    assert "aún no tiene APIs aprendidas" in result.message.content

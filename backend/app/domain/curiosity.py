@@ -64,6 +64,7 @@ class MountedAPI(BaseModel):
 
 
 CAPABILITY = "curiosity.api"
+LIST_COMMAND = "Curiosidad listar"
 CHAT_CONTEXT_KEY = "curiosity_direct_command"
 COMMAND_NAME = r"[A-Za-z0-9_-]{1,64}"
 
@@ -81,6 +82,8 @@ def chat_command(content: str) -> str | None:
 
 def catalog_has_query(skills: list[dict[str, str]], command: str) -> bool:
     return any(
-        skill["capability"] == CAPABILITY and command in skill.get("help", "").splitlines()
+        skill["capability"] == CAPABILITY
+        and (command == LIST_COMMAND or command.startswith("Curiosidad consultar "))
+        and command in skill.get("help", "").splitlines()
         for skill in skills
     )

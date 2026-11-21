@@ -13,7 +13,7 @@ from app.application.antigravity import AntigravityQueue
 from app.application.approvals import ApprovalStore
 from app.application.registry import AgentRegistry
 from app.domain.curiosity import CAPABILITY as CURIOSITY_CAPABILITY
-from app.domain.curiosity import catalog_has_query
+from app.domain.curiosity import LIST_COMMAND, catalog_has_query
 from app.domain.models import (
     Agent,
     AgentCapability,
@@ -72,15 +72,24 @@ class ConversationAgent:
         self, message: IncomingMessage, allowed: list[str]
     ) -> list[dict[str, str]]:
         skills = self.catalog([name for name in allowed if name != CURIOSITY_CAPABILITY])
-        if CURIOSITY_CAPABILITY in allowed and self.learned_queries:
-            queries = await self.learned_queries(message.channel.name, message.conversation_id)
-            if queries:
-                skills.append({
-                    "capability": CURIOSITY_CAPABILITY,
-                    "description": "Consulta las APIs aprendidas en este chat. "
-                                   "Escoge un comando exacto si coincide con la petición.",
-                    "help": "\n".join(queries),
-                })
+        if CURIOSITY_CAPABILITY in allowed:
+            queries = (
+                await self.learned_queries(message.channel.name, message.conversation_id)
+                if self.learned_queries else []
+            )
+            skills.append({
+                "capability": CURIOSITY_CAPABILITY,
+                "description": "Meta-habilidad de Artemis para integrar y consultar APIs HTTP "
+                               "de lectura en este chat. Puede listar las APIs aprendidas aunque "
+                               "todavía no haya ninguna.",
+                "help": "\n".join([
+                    LIST_COMMAND,
+                    *queries,
+                    "Para incorporar una API, indica al usuario que escriba «Aprende esta API "
+                    "URL_OPENAPI_JSON». Para retirarla, «Curiosidad retirar NOMBRE». "
+                    "Esos cambios requieren un comando directo del usuario.",
+                ]),
+            })
         return skills
 
     async def run(self, request: AgentRequest) -> AgentResponse:

@@ -141,6 +141,13 @@ class ContextSource:
                 spare -= options.safety_margin + 512
                 effective["safety_margin"] += min(overhead, max(0, spare), 3000)
             runtime_settings[provider] = effective
+        inventory = ", ".join(skill["capability"] for skill in context["skills"])
+        instructions += (
+            "\nInventario completo de habilidades conversacionales asignadas a este bot: "
+            f"{inventory or 'ninguna'}. Usa este inventario para responder qué puedes hacer. "
+            "El bloque tools contiene los contratos utilizables en este turno. "
+            "Una habilidad fuera de tools sigue asignada aunque su contrato no esté visible."
+        )
         data = ContextInput(
             core=core, extended=extended, instructions=instructions, history=history,
             greeting=context["greeting"], message=context["message"],

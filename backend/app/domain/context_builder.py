@@ -29,7 +29,7 @@ def default_components() -> dict[Component, Policy]:
         "core": Policy(priority=254, maximum=200),
         "operations": Policy(priority=254, maximum=16000),
         "history": Policy(priority=180, maximum=2200),
-        "tools": Policy(priority=190, maximum=2400),
+        "tools": Policy(priority=190, maximum=6000),
         "summary": Policy(priority=140, maximum=800),
         "memory": Policy(priority=130, maximum=1000),
         "extended": Policy(priority=120, maximum=1200),
@@ -58,7 +58,7 @@ class ContextSettings(BaseModel):
     memory_recency: float = Field(default=0.15, ge=0, le=1)
     deduplicate: bool = True
     adaptive_calibration: bool = True
-    dynamic_tools: bool = True
+    dynamic_tools: bool = False
     include_dependencies: bool = True
     max_tools: int = Field(default=5, ge=1, le=40)
     tool_threshold: int = Field(default=1, ge=0, le=12)

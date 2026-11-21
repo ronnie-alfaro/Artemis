@@ -68,3 +68,31 @@ async def test_semantic_memory_requires_channel_agent_and_conversation(tmp_path)
 def test_redacts_known_secret_patterns_in_nested_data():
     result = redact({"observations": ["password=example1234", "BearEr some-long-test-token"]})
     assert result == {"observations": ["[credencial omitida]", "[credencial omitida]"]}
+
+
+@pytest.mark.asyncio
+async def test_context_preserves_full_skill_inventory_even_with_dynamic_selection(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    store = AsyncMock()
+    store.history.return_value = ([], None, False)
+    source = ContextSource(store, None)
+    monkeypatch.setattr(source, "persona", AsyncMock(return_value=("Core", "", "revision")))
+    monkeypatch.setattr(source, "memories", AsyncMock(return_value=[]))
+    skills = [
+        {"capability": name} for name in ("karakeep.bookmarks", "tmdb.catalog", "curiosity.api")
+    ]
+    context = {
+        "persona": "Core", "greeting": "", "message": "Busca en Karakeep",
+        "image_context": "", "skills": skills, "observations": [], "actions_remaining": 4,
+    }
+    payload, _, _ = await source.prepare(
+        {"bot": "primary", "channel": "whatsapp"}, context, "Instructions",
+        {"codex": merge_settings({"dynamic_tools": True, "adaptive_calibration": False})},
+        persist=False,
+    )
+
+    assert payload["settings"]["codex"]["dynamic_tools"] is True
+    assert payload["skills"] == skills
+    assert all(skill["capability"] in payload["instructions"] for skill in skills)
+    assert merge_settings({"enabled": True}).runtime()["dynamic_tools"] is False

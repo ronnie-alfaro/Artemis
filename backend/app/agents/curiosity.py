@@ -22,6 +22,7 @@ _CALL = re.compile(rf"consultar ({COMMAND_NAME}) ({COMMAND_NAME})", re.I)
 _REMOVE = re.compile(rf"retirar ({COMMAND_NAME})", re.I)
 
 HELP = (
+    "• Curiosidad listar\n"
     "• Aprende esta API https://ejemplo.com/openapi.json\n"
     "• Curiosidad integrar NOMBRE URL_OPENAPI_JSON\n"
     "• Curiosidad consultar NOMBRE OPERACIÓN\n"
@@ -64,7 +65,7 @@ class CuriosityAgent:
                 if (
                     direct
                     or CAPABILITY in message.required_capabilities
-                    and _CALL.fullmatch(command)
+                    and (command.casefold() == "listar" or _CALL.fullmatch(command))
                 ):
                     content = await self._handle(
                         message.channel.name, message.conversation_id, command, metadata
@@ -84,6 +85,11 @@ class CuriosityAgent:
     async def _handle(
         self, channel: str, conversation: UUID, command: str, metadata: dict[str, str],
     ) -> str:
+        if command.casefold() == "listar":
+            queries = await self.adapter.learned_queries(channel, conversation)
+            if not queries:
+                return "Curiosidad está disponible. Este chat aún no tiene APIs aprendidas."
+            return "Consultas aprendidas en este chat:\n" + "\n".join(queries)
         learn = _LEARN.fullmatch(command)
         mount = _MOUNT.fullmatch(command)
         api = None
