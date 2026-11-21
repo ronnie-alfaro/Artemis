@@ -73,3 +73,27 @@ async def test_seerr_watchlist_uses_tmdb_id_and_existing_approval(monkeypatch):
     assert (operation.method, operation.path, operation.body) == (
         "POST", "/api/v1/watchlist", {"tmdbId": 123, "mediaType": "movie"},
     )
+
+
+@pytest.mark.asyncio
+async def test_tmdb_chat_returns_the_execution_id(monkeypatch):
+    monkeypatch.setenv("TMDB_RAT", "fake")
+    get = AsyncMock(return_value={"results": [{
+        "id": 123, "name": "Example", "poster_path": "/a.jpg",
+    }]})
+    monkeypatch.setattr(TmdbClient, "get", get)
+    orchestrator = build_orchestrator()
+    response = await orchestrator.handle(IncomingMessage(
+        conversation_id=uuid4(),
+        channel=Channel(name="rest"),
+        content="tmdb tendencias de series",
+        required_capabilities=["tmdb.catalog"],
+    ))
+
+    assert "Tendencias" in response.message.content
+    assert "https://image.tmdb.org/t/p/w342/a.jpg" in response.message.content
+    assert response.executions[0].result is not None
+    assert response.executions[0].result.metadata["execution_id"] == str(
+        response.message.execution_id
+    )
+    get.assert_awaited_once_with("trending/tv/week", language="es", page=1)

@@ -198,7 +198,11 @@ class TmdbAgent:
             content = "Consulta TMDB inválida. Escribe «ayuda TMDB» para ver ejemplos."
         except TmdbError as error:
             content = str(error)
-        return AgentResponse(result=AgentResult(agent_name="tmdb", content=content))
+        return AgentResponse(result=AgentResult(
+            agent_name="tmdb",
+            content=content,
+            metadata={"execution_id": str(request.execution_id)},
+        ))
 
     async def execute(self, query: Query) -> str:
         params: dict[str, str | int | float] = {"language": query.language, "page": query.page}
