@@ -15,6 +15,7 @@ class SkillPresentation(BaseModel):
         return " ".join(value.split()) if isinstance(value, str) else value
 
 
+TMDB_CAPABILITY = "tmdb.catalog"
 MEMORY_CAPABILITY = "memory.records"
 TERRAQUAKE_CAPABILITY = "terraquake.earthquakes"
 
@@ -34,6 +35,9 @@ DEFAULT_PRESENTATIONS = {
     ),
     "codex": SkillPresentation(
         name="Codex", description="Conversa y crea herramientas para Artemis."
+    ),
+    "tmdb": SkillPresentation(
+        name="TMDB", description="Explora películas, series, estrenos y próximos episodios."
     ),
     "seerr": SkillPresentation(
         name="Seerr",

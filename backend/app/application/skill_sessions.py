@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 from uuid import UUID
 
+from app.agents.tmdb import natural_query
 from app.application.approvals import ApprovalStore
 from app.application.github_sync import is_sync_command
 from app.application.iteration import is_iteration_command
@@ -16,6 +17,7 @@ from app.domain.models import IncomingMessage, ReactionOption
 from app.domain.skills import (
     MEMORY_CAPABILITY,
     TERRAQUAKE_CAPABILITY,
+    TMDB_CAPABILITY,
     SkillPresentation,
     help_target,
 )
@@ -30,6 +32,7 @@ SKILL_CAPABILITIES = {
     "usenet": "usenet.downloads",
     "karakeep": "karakeep.bookmarks",
     "seerr": "seerr.media",
+    "tmdb": TMDB_CAPABILITY,
 }
 _SWITCH = re.compile(r"^/?(?:utiliza|usar|usa)\s+(.+)$", re.IGNORECASE)
 _SEARCH = re.compile(r"^(?:quiero\s+)?(?:busca(?:r|me)?|búscame|search)\s+", re.IGNORECASE)
@@ -167,8 +170,21 @@ class SkillSessionRouter:
             "ayuda", "/ayuda", "help", "/help", "qué puedes hacer", "que puedes hacer",
         }:
             return message, {}
+        if active == "tmdb" and "seerr" in available:
+            seerr_command = normalized.startswith("seerr api ")
+            seerr_confirmation = normalized in {"confirmo", "confirmar", "cancelar"}
+            if seerr_command or (seerr_confirmation and self.approvals.pending_for_conversation(
+                message.conversation_id, agent_name="seerr",
+            )):
+                return message.model_copy(update={
+                    "required_capabilities": [available["seerr"]],
+                }), {}
         if active:
             return message.model_copy(update={"required_capabilities": [available[active]]}), {}
+        if ("tmdb" in available and _SEARCH.match(text) and len(text) <= 200
+                and natural_query(text) is not None
+                and not re.search(r"\b(?:karakeep|seerr|marcadores|enlaces)\b", text, re.I)):
+            return message, {}
         if _SEARCH.match(text) and len(available) > 1 and not re.search(
             r"\ben\s+(?:karakeep|(?:mis\s+)?(?:bookmarks|marcadores)|(?:mis\s+)?enlaces)\b",
             text, re.IGNORECASE

@@ -24,6 +24,7 @@ from app.agents.memory import MemoryAgent
 from app.agents.seerr import SeerrAgent
 from app.agents.status import StatusAgent
 from app.agents.terraquake import TerraQuakeAgent
+from app.agents.tmdb import TmdbAgent
 from app.agents.usenet import UsenetAgent
 from app.api.antigravity import install_antigravity_routes
 from app.api.codex import install_codex_routes
@@ -91,7 +92,7 @@ from app.domain.seerr import (
     SeerrConfigurationStatus,
     SeerrSettings,
 )
-from app.domain.skills import MEMORY_CAPABILITY, TERRAQUAKE_CAPABILITY
+from app.domain.skills import MEMORY_CAPABILITY, TERRAQUAKE_CAPABILITY, TMDB_CAPABILITY
 from app.domain.usenet import UsenetClient, UsenetClientError
 from app.domain.whatsapp import (
     WhatsAppAgentProfile,
@@ -117,6 +118,7 @@ from app.infrastructure.seerr_unconfigured import UnconfiguredSeerrClient
 from app.infrastructure.skill_presentations import PostgresSkillPresentationStore
 from app.infrastructure.skill_sessions import PostgresSkillSessionStore
 from app.infrastructure.telegram_http import HttpTelegramClient
+from app.infrastructure.tmdb import TmdbClient
 from app.infrastructure.usenet_config import PostgresUsenetConfigurationStore
 from app.infrastructure.usenet_http import HttpUsenetClient
 from app.infrastructure.webhook_events import PostgresWebhookEventStore
@@ -156,6 +158,8 @@ def build_orchestrator(
     tools.register(SeerrRequestTool(client), authorized_agents={"seerr"})
     seerr_agent = SeerrAgent(client, tools, approvals)
     agents.register(seerr_agent)
+    tmdb_agent = TmdbAgent(configured_tmdb_client())
+    agents.register(tmdb_agent)
     karakeep = karakeep_client or UnconfiguredKarakeepClient()
     tools.register(KarakeepBookmarkTool(karakeep), authorized_agents={"karakeep"})
     karakeep_agent = KarakeepAgent(karakeep, tools, approvals)
@@ -191,7 +195,9 @@ def build_orchestrator(
     status_agent = StatusAgent(
         {
             capability.name: capability.help_text or capability.description
-            for agent in (*skill_agents, curiosity_agent, terraquake_agent, memory_agent)
+            for agent in (
+                *skill_agents, curiosity_agent, terraquake_agent, memory_agent, tmdb_agent,
+            )
             for capability in agent.definition.capabilities
         }
     )
@@ -224,7 +230,7 @@ def build_orchestrator(
         },
     )
     selectors = CompositeCapabilitySelector(
-        terraquake_agent, karakeep_agent, usenet_agent, seerr_agent,
+        terraquake_agent, karakeep_agent, usenet_agent, tmdb_agent, seerr_agent,
     )
     orchestrator = Orchestrator(
         CapabilityPlanner(agents, selectors), DAGExecutor(agents), sessions,
@@ -242,6 +248,10 @@ def build_orchestrator(
     orchestrator.antigravity_queue = antigravity_queue  # type: ignore[attr-defined]
     orchestrator.registry = agents  # type: ignore[attr-defined]
     return orchestrator
+
+
+def configured_tmdb_client() -> TmdbClient:
+    return TmdbClient(os.getenv("TMDB_RAT", ""), os.getenv("TMDB_API", ""))
 
 
 def configured_seerr_client() -> SeerrClient | None:
@@ -726,6 +736,7 @@ def create_app() -> FastAPI:
             MEMORY_CAPABILITY: True,
             "github.repositories": bool(os.getenv("GITHUB_TOKEN")),
             "seerr.media": app.state.seerr_configured,
+            TMDB_CAPABILITY: configured_tmdb_client().configured,
             "karakeep.bookmarks": app.state.karakeep_configured,
             "usenet.downloads": app.state.usenet_configured,
             "antigravity.assistant": orchestrator.antigravity_queue.available,  # type: ignore[attr-defined]

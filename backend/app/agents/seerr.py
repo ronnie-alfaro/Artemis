@@ -45,6 +45,10 @@ class SeerrAgent:
                     "Seerr · API, películas y series:\n"
                     "• Estado por ID: ‘estado solicitud 42’.\n"
                     "• API completa: ‘seerr api GET /api/v1/request?filter=pending’.\n"
+                    "• Watchlist de Seerr: para guardar un resultado de TMDB, usa su tipo e ID "
+                    'en seerr api POST /api/v1/watchlist {"tmdbId":123,"mediaType":"movie"} '
+                    "(sustituye los valores por los del título) y pide confirmación. "
+                    "Guardar en la watchlist y solicitar un título son operaciones distintas.\n"
                     "• Cambios: ‘seerr api POST /api/v1/request/42/approve’. "
                     "Añade un cuerpo JSON cuando corresponda y confirma con ‘confirmo’.\n"
                     "• Ver títulos pendientes: escribe ‘ver títulos pendientes’. "

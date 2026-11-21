@@ -93,6 +93,7 @@ function ChannelAgent({ apiFetch, channel, bridgeRevision }: Props & { channel: 
   const skillLabel = (skill: string) => ({
     "curiosity.api": "Integrar APIs · Curiosidad",
     "memory.records": "Buscar y editar recuerdos · Chroma",
+    "tmdb.catalog": "Películas y series · TMDB",
     "seerr.media": "Películas y series · Seerr",
     "github.repositories": "Repositorios y actividad · GitHub",
     "karakeep.bookmarks": "Buscar y guardar enlaces · Karakeep",
